@@ -27,13 +27,48 @@ with point error reported alongside as the cost.
 
 ## Install
 
+This repository is self-contained: it declares its own dependencies and needs nothing from
+any other checkout.
+
 ```bash
-pip install -e ".[dev]"            # core + tests
-pip install -e ".[all]"            # adds collection, ASR, viewer, tracking
-pytest                             # 10 tests, no data or network needed
+uv venv --python 3.12 .venv && uv pip install -e ".[all]"
+# or:  python -m venv .venv && .venv/bin/pip install -e ".[all]"
+.venv/bin/pytest                   # 10 tests, no data or network needed
 ```
 
-Python 3.11+. Torch runs on CUDA, Apple MPS or CPU, picked automatically.
+Python 3.11+. Torch picks CUDA, Apple MPS or CPU automatically. The extras are
+`collect` (OpenSky), `asr` (transcription), `app` (viewer), `track` (wandb), `dev` (tests),
+and `all`.
+
+## Using pre-trained weights and a prepared dataset
+
+`runs/` and `data/` are gitignored, so a fresh clone has neither. Both are optional: the
+pipeline below builds them from scratch. To evaluate without rebuilding, drop artefacts at
+the paths the scripts would have written:
+
+```
+runs/stage1.pt              Stage-1 clearance posterior
+runs/stage2.pt              Stage-2 flow predictor
+runs/lambda.json            fitted spread inflation (see Calibrate)
+data/dataset/meta.parquet            maneuver segments, the Stage-1 training set
+data/dataset/meta_grounded.parquet   the same, with the onset state joined on
+data/windows_raw/windows.npz         Stage-2 windows
+data/windows_raw/windows_meta.parquet
+data/cache/aircraftDatabase.csv      optional; avoids re-downloading ~95 MB
+```
+
+`meta_grounded.parquet` is derived, so it can always be regenerated:
+
+```python
+from atc_forecast.data.windows import attach_onset_state
+import pandas as pd
+attach_onset_state(pd.read_parquet("data/dataset/meta.parquet"), "data/windows_raw") \
+    .to_parquet("data/dataset/meta_grounded.parquet", index=False)
+```
+
+Checkpoints saved by earlier versions of this code load too: `load_stage1` migrates known
+renames and drops weights from variants that were removed, and raises on anything else
+rather than loading a silently incomplete model.
 
 ## Pipeline
 

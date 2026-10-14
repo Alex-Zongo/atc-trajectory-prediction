@@ -302,6 +302,20 @@ def save_stage1(model: ClearancePosterior, vocab, path, **extra):
                 "temperature": float(model.temperature), **extra}, path)
 
 
+# Weight prefixes that older checkpoints carry and this model does not. `z_proj` was a
+# projection to a contrastive latent that no inference path ever read, so dropping it loses
+# nothing. Anything NOT listed here is reported, so a genuine mismatch is never silent.
+_LEGACY_DEAD_PREFIXES = ("z_proj.",)
+
+
+def _migrate_state_dict(sd: dict) -> dict:
+    """Bring an older checkpoint's keys onto the current module names."""
+    # a single altitude-only FiLM became a dict of per-field FiLMs
+    sd = {("state_films.alt." + k[len("state_film."):] if k.startswith("state_film.") else k): v
+          for k, v in sd.items()}
+    return {k: v for k, v in sd.items() if not k.startswith(_LEGACY_DEAD_PREFIXES)}
+
+
 def load_stage1(path, device="cpu"):
     """Rebuild a Stage-1 model and its vocabulary from a checkpoint.
 
@@ -311,7 +325,7 @@ def load_stage1(path, device="cpu"):
     from ..data.text import Vocab
 
     ck = torch.load(path, map_location="cpu", weights_only=False)
-    sd, itos = ck["model"], ck["vocab"]
+    sd, itos = _migrate_state_dict(ck["model"]), ck["vocab"]
     gf = ck.get("ground_fields") or sorted({k.split(".")[1] for k in sd
                                             if k.startswith("state_films.")})
     sdim = ck.get("state_dim")
@@ -319,10 +333,18 @@ def load_stage1(path, device="cpu"):
         sdim = sd[f"state_films.{gf[0]}.net.0.weight"].shape[1] if gf else 0
     cont = ck.get("cont_head") or ("mix" if sd["head.alt.weight"].shape[0] == 3 * K_MIX else "cat")
     cfg = EncoderConfig(vocab_size=len(itos), max_len=sd["backbone.pos.weight"].shape[0] - 1)
+    n_slots = ck.get("n_slots")
+    if n_slots is None and "slots.queries" in sd:
+        n_slots = sd["slots.queries"].shape[0]      # older checkpoints did not record it
     model = ClearancePosterior(cfg, state_dim=sdim, cont_head=cont,
                                ground_fields=tuple(gf) or ("hdg", "alt", "spd"),
-                               n_slots=ck.get("n_slots"))
-    model.load_state_dict(sd)
+                               n_slots=n_slots)
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    if missing or unexpected:
+        raise RuntimeError(
+            f"checkpoint does not match the model: missing={sorted(missing)} "
+            f"unexpected={sorted(unexpected)}. If these are weights from a variant this "
+            f"package dropped, add their prefix to _LEGACY_DEAD_PREFIXES.")
     # a plain attribute, so it must be re-applied on load or the model runs uncalibrated
     model.temperature = float(ck.get("temperature", 1.0))
     model.eval().to(device)

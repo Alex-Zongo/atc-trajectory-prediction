@@ -11,13 +11,15 @@ dist/
 .DS_Store
 .ipynb_checkpoints/
 
-# run artefacts
-data/
-results/
-runs/
-wandb/
+# Run artefacts. These are anchored to the repository root with a leading slash:
+# an unanchored "data/" would also match src/atc_forecast/data/, which is source code.
+/data/
+/results/
+/runs/
+/wandb/
+/.tmp/
 *.pt
 *.npz
-*.parquet
-*.csv
-!tests/fixtures/*.csv
+
+# Dataset tables live under the ignored directories above, so parquet/CSV are not
+# ignored globally; that would also hide any fixture a test needs to commit.

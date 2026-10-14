@@ -156,7 +156,7 @@ def main():
     cols[1].metric("heading spread", f"{post.heading.std():.0f} deg")
     cols[2].metric("distinct altitudes", int(post.altitude_ft.nunique()))
     cols[3].metric("temperature", f"{stage1.temperature:.2f}")
-    st.dataframe(post, height=200, use_container_width=True)
+    st.dataframe(post, height=200, width="stretch")
     st.caption("Each row is one coherent sampled clearance. Spread across rows is the "
                "communication uncertainty; a collapsed table means the model is certain.")
 
@@ -189,7 +189,7 @@ def main():
     st.pyplot(fig)
 
     show = ["kde", "cov80", "energy_traj", "energy_endpoint", "avgADE_nm", "vMAE_ft"]
-    st.dataframe(pd.DataFrame(metrics).T[show].round(4), use_container_width=True)
+    st.dataframe(pd.DataFrame(metrics).T[show].round(4), width="stretch")
     st.caption("kde is the log-density of the true endpoint under the predicted cloud, so "
                "higher is better. energy is a proper score, so lower is better. One window "
                "is noisy; use evaluation.compose for the aggregate.")
