@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.DS_Store
+.ipynb_checkpoints/
+
+# run artefacts
+data/
+results/
+runs/
+wandb/
+*.pt
+*.npz
+*.parquet
+*.csv
+!tests/fixtures/*.csv

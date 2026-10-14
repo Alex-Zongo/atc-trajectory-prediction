@@ -1,0 +1,54 @@
+{
+  "name": "jacktol",
+  "spoken": true,
+  "scaling": "fixed",
+  "source": "sidecar atco2_1h_jacktol_semantic (ATCO2 1h); OMISSION-DOMINANT observed rates; sparse fields are priors | altitude re-derived 2026-09-30 with a corrected 'N thousand M hundred' parser; error modes measured",
+  "full_dropout": 0.0,
+  "verb_flip": 0.1707,
+  "correction_rate": 0.03,
+  "fields": {
+    "direction": {
+      "dropout": 0.0,
+      "flip": 0.0952
+    },
+    "heading": {
+      "dropout": 0.0,
+      "digit_error": 0.0
+    },
+    "altitude": {
+      "dropout": 0.0506,
+      "digit_error": 0.0759,
+      "error_mode_counts_provisional": {
+        "off_by_<1000": 3,
+        "off_by_1000": 1,
+        "other": 2
+      }
+    },
+    "speed": {
+      "dropout": 0.5068,
+      "digit_error": 0.0548
+    },
+    "callsign": {
+      "dropout": 0.3071,
+      "error": 0.339
+    }
+  },
+  "confidence": {
+    "kind": "fixed",
+    "value": 0.82,
+    "noise": 0.05
+  },
+  "surface": {
+    "garble": 0.0,
+    "filler": 0.0,
+    "word_drop": 0.0,
+    "truncation": 0.0
+  },
+  "usable_for_sampling": [
+    "callsigns"
+  ],
+  "provisional": [
+    "directions",
+    "headings_deg"
+  ]
+}
