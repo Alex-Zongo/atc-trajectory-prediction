@@ -58,7 +58,7 @@ $("#inputchip").textContent = `${K} samples · ${NS} Euler steps · guidance ${S
 const NODES = [
   { id: "past", x: 0, y: 0, t: "Past ADS-B", s: `${PV.length} obs × 7 + Δt`, input: true },
   { id: "aircraft", x: 0, y: 1, t: "Aircraft", s: `${S.aircraft.wake} · ${S.aircraft.engine} · ${S.aircraft.n_engines}`, input: true },
-  { id: "clearance", x: 0, y: 2, t: "Clearance δ", s: "[10]", input: true },
+  { id: "instruction", x: 0, y: 2, t: "Instruction δ", s: "[10]", input: true },
   { id: "noise", x: 0, y: 3, t: "Noise x₀ ~ N(0, I)", s: `[${H} × 4]`, input: true },
   { id: "pastenc", x: 1, y: 0, t: "Past encoder", s: `FiLM · ${D.past_layers} layers`, },
   { id: "acemb", x: 1, y: 1, t: "Aircraft embed", s: `[${D.dim}]` },
@@ -68,7 +68,7 @@ const NODES = [
   { id: "flow", x: 4, y: 2.4, t: "Integrate the ODE", s: `x ← x + v/${NS}` },
   { id: "output", x: 5, y: 1.2, t: "Controls → path", s: `[${H} × 4] → [${H} × 3]` },
 ];
-const EDGES = [["past", "pastenc"], ["aircraft", "acemb"], ["clearance", "dirtok"], ["pastenc", "memory"], ["dirtok", "memory"], ["acemb", "pastenc"],
+const EDGES = [["past", "pastenc"], ["aircraft", "acemb"], ["instruction", "dirtok"], ["pastenc", "memory"], ["dirtok", "memory"], ["acemb", "pastenc"],
   ["memory", "dit"], ["acemb", "dit"], ["noise", "dit"], ["dit", "flow"], ["flow", "output"]];
 const svg = d3.select("#pipe"), W = document.body.clientWidth - 6, nw = Math.min(150, (W - 30) / 6 - 26), cg = (W - 6 * nw) / 5.2, nh = 42;
 svg.attr("viewBox", `0 0 ${W} 236`);
@@ -164,7 +164,7 @@ const interpStep = (arr, f) => {               // arr: [S+1][k][H][3]; fractiona
 const panels = {};
 panels.past = d => {
   d.append(...head("Past ADS-B observations", `${PV.length} raw samples · [dx, dy, alt, gs, sin ψ, cos ψ, v/s] + Δt`,
-    "The past is fed exactly as observed: raw ADS-B samples in the half-minute before the clearance, each keeping its own time before onset. Nothing is interpolated onto a grid, so irregular cadence and dropouts are visible to the model rather than smoothed over. Positions are relative to the onset (the black dot)."));
+    "The past is fed exactly as observed: raw ADS-B samples in the half-minute before the instruction, each keeping its own time before onset. Nothing is interpolated onto a grid, so irregular cadence and dropouts are visible to the model rather than smoothed over. Positions are relative to the onset (the black dot)."));
   const r = el("div", { class: "row2" }), a = el("div"), b = el("div"); r.append(a, b); d.append(r);
   requestAnimationFrame(() => {
     planChart(a, a.clientWidth, 300, null, { truthAlpha: .15 }).update([]);
@@ -178,17 +178,17 @@ panels.past = d => {
 };
 panels.aircraft = d => {
   d.append(...head("Aircraft performance class", `wake ⊕ engine ⊕ engines/4 → MLP → [${D.dim}]`,
-    "Only the performance class is used, never the type code or the callsign, which would be memorised. The same clearance is flown two to four times faster by a narrowbody than by a light single, so without this the airframe's variance would be mistaken for clearance uncertainty. The embedding modulates the past encoder (FiLM) and every DiT block (adaLN)."));
+    "Only the performance class is used, never the type code or the callsign, which would be memorised. The same instruction is flown two to four times faster by a narrowbody than by a light single, so without this the airframe's variance would be mistaken for instruction uncertainty. The embedding modulates the past encoder (FiLM) and every DiT block (adaLN)."));
   d.append(el("div", { class: "kv" }, el("span", { class: "k" }, "wake category"), el("span", { class: "mono" }, S.aircraft.wake),
     el("span", { class: "k" }, "engine class"), el("span", { class: "mono" }, S.aircraft.engine), el("span", { class: "k" }, "engines"), el("span", { class: "mono" }, S.aircraft.n_engines),
     el("span", { class: "k" }, "past-encoder FiLM ‖γ‖, ‖β‖"), el("span", { class: "mono" }, `${S.aircraft.film_gamma.toFixed(2)}, ${S.aircraft.film_beta.toFixed(2)}`)));
   const cv = el("canvas", { class: "hm", style: "margin-top:12px" }); d.append(el("div", { class: "label", style: "margin-top:12px" }, "aircraft embedding"), cv);
   heat(cv, matrix(S.aircraft.emb), { cw: 6, ch: 22 });
 };
-panels.clearance = d => {
+panels.instruction = d => {
   const dv = S.directive;
-  d.append(...head("Clearance δ", "[10] = lateral [4] · vertical [3] · speed [3]",
-    "The structured clearance, from the oracle or decoded by Stage 1. Each axis carries its whole command: whether it is present, its direction, and its target. Heading enters as sin and cos, so 355° and 005° are close. A dropped clearance (the no-instruction baseline) swaps in three learned null tokens."));
+  d.append(...head("Instruction δ", "[10] = lateral [4] · vertical [3] · speed [3]",
+    "The structured instruction, from the oracle or decoded by Stage 1. Each axis carries its whole command: whether it is present, its direction, and its target. Heading enters as sin and cos, so 355° and 005° are close. A dropped instruction (the no-instruction baseline) swaps in three learned null tokens."));
   const axes = [["Lateral", dv.lateral.present ? `turn ${dv.lateral.right ? "right" : "left"} heading ${fmt.hdg(dv.lateral.hdg)}` : "no turn", [0, 4]],
     ["Vertical", dv.vertical.present ? `${dv.vertical.climb ? "climb" : "descend"} to ${fmt.alt(dv.vertical.alt_ft)}` : "no altitude change", [4, 7]],
     ["Speed", dv.speed.present ? `${dv.speed.accel ? "increase" : "reduce"} to ${fmt.n(dv.speed.kt)} kt` : "no speed change", [7, 10]]];
@@ -212,7 +212,7 @@ panels.noise = d => {
     const pc2 = profileChart(b, b.clientWidth, 150, "hdg", "heading (°) at t = 0"); pc2.update(F.ctrl[0]); });
 };
 panels.acemb = panels.aircraft;
-panels.dirtok = panels.clearance;
+panels.dirtok = panels.instruction;
 panels.pastenc = d => {
   d.append(...head("Past encoder", `Linear + time-embed → FiLM(aircraft) → ${D.past_layers} × pre-LN self-attention`,
     "The observed past is encoded once into context tokens that every flow step can read. Self-attention lets each observation relate to the others; for example, recent samples can weigh how fast the heading has been changing."));
@@ -244,7 +244,7 @@ panels.pastenc = d => {
 };
 panels.memory = d => {
   d.append(...head("Conditioning memory", `[${D.mem} × ${D.dim}] = ${D.P} past tokens ⊕ 3 axis tokens`,
-    "Everything the flow is allowed to know about the situation, held as one sequence that every DiT block cross-attends into. Padded past slots are masked out. The three clearance tokens sit at the end, so attention to them is attention to the instruction."));
+    "Everything the flow is allowed to know about the situation, held as one sequence that every DiT block cross-attends into. Padded past slots are masked out. The three instruction tokens sit at the end, so attention to them is attention to the instruction."));
   const labs = S.memory.labels, cs = Math.max(18, Math.min(34, (d.clientWidth - 40) / labs.length));
   const s = d3.select(d).append("svg").attr("width", labs.length * cs + 40).attr("height", 120);
   labs.forEach((l, i) => {
@@ -254,11 +254,11 @@ panels.memory = d => {
     s.append("text").attr("transform", `translate(${20 + i * cs + cs / 2},44) rotate(-55)`).attr("font-size", 10).attr("class", "mono").attr("fill", ax ? C.text : C.muted).text(l);
   });
   d.append(el("div", { class: "legend-inline" }, el("span", {}, el("i", { style: `background:${rgba(C.past, .5)}` }), "encoded past observation"),
-    el("span", {}, el("i", { style: `background:${rgba(C.oracle, .7)}` }), "clearance axis token"), el("span", {}, el("i", { style: `background:${C.surface2};border:1px dashed ${C.border}` }), "padding (masked)")));
+    el("span", {}, el("i", { style: `background:${rgba(C.oracle, .7)}` }), "instruction axis token"), el("span", {}, el("i", { style: `background:${C.surface2};border:1px dashed ${C.border}` }), "padding (masked)")));
 };
 panels.dit = d => {
   d.append(...head(`DiT block internals`, `${D.blocks} blocks · self-attn over ${H} future steps · cross-attn into ${D.mem} memory tokens · MLP · adaLN-zero`,
-    "Inside each block the future sequence attends to itself, which keeps the trajectory smooth, then cross-attends into the memory (past plus clearance), then passes through an MLP. Flow-time and the aircraft set a shift, scale and gate on each sublayer (adaLN-zero). Choose a flow step and a block to see what it reads."));
+    "Inside each block the future sequence attends to itself, which keeps the trajectory smooth, then cross-attends into the memory (past plus instruction), then passes through an MLP. Flow-time and the aircraft set a shift, scale and gate on each sublayer (adaLN-zero). Choose a flow step and a block to see what it reads."));
   const ctr = el("div", { class: "ctrls" }), bs = el("div", { class: "seg" }), hs = el("div", { class: "seg" });
   let st = Math.floor(NS / 2), B = D.blocks - 1, h = -1;
   const slider = el("input", { type: "range", min: 0, max: NS - 1, value: st, style: "width:180px", oninput: ev => { st = +ev.target.value; draw(); } });
@@ -290,8 +290,8 @@ panels.dit = d => {
     const cv = el("canvas", { class: "hm" }); b.append(cv);
     const rows = d3.range(H).map(q => d3.range(H).map(k => h < 0 ? d3.mean(d3.range(D.heads), i => SA.at(st, B, i, q, k)) : SA.at(st, B, h, q, k)));
     heat(cv, rows, { cw: 4.5, ch: 4.5, gap: 0, seq: true, max: Math.max(...rows.flat()) * .6, label: (i, j, v) => `+${i}s attends +${j}s<br><b>${v.toFixed(3)}</b>` });
-    // how much each future step reads the clearance, over flow time, for this block
-    c.append(el("div", { class: "label" }, "share of cross-attention on the clearance tokens"),
+    // how much each future step reads the instruction, over flow time, for this block
+    c.append(el("div", { class: "label" }, "share of cross-attention on the instruction tokens"),
       el("p", { class: "muted", style: "margin:2px 0 4px" }, "Per future step, at every flow step (light = early t, dark = late t). Where this is high, the forecast is being shaped by the instruction rather than by the past."));
     const sc = d3.select(c).append("svg").attr("width", c.clientWidth).attr("height", 200);
     const x = d3.scaleLinear([0, H - 1], [40, c.clientWidth - 10]), y = d3.scaleLinear([0, 1], [180, 10]);
@@ -324,7 +324,7 @@ panels.dit = d => {
 let flowPlay = null;
 panels.flow = d => {
   d.append(...head("Integrating the flow", `${NS} Euler steps of x ← x + v(x, t | memory, aircraft) / ${NS}`,
-    `The network predicts a velocity that carries the noise toward a plausible future. Integrating it from t = 0 to 1 turns each of the ${K} noise samples into one execution of the clearance. Positions here are the dead-reckoned controls at the current t; the black line is what the aircraft actually flew.`));
+    `The network predicts a velocity that carries the noise toward a plausible future. Integrating it from t = 0 to 1 turns each of the ${K} noise samples into one execution of the instruction. Positions here are the dead-reckoned controls at the current t; the black line is what the aircraft actually flew.`));
   const ctr = el("div", { class: "ctrls" });
   const btn = el("button", { class: "btn primary" }, "▶ Integrate");
   const slider = el("input", { type: "range", min: 0, max: NS, step: 0.01, value: NS, style: "width:260px" });
@@ -362,7 +362,7 @@ panels.flow = d => {
 };
 panels.output = d => {
   d.append(...head("Controls to trajectory", `[${H} × (gs, sin ψ, cos ψ, v/s)] → dead reckoning → [${H} × (east, north, alt)]`,
-    "Stage 2 predicts controls rather than positions, because a clearance commands a rate or a target and not a coordinate. Positions are the running sum of the controls, which is also why the loss weights early steps more heavily: an error there displaces every later position."));
+    "Stage 2 predicts controls rather than positions, because an instruction commands a rate or a target and not a coordinate. Positions are the running sum of the controls, which is also why the loss weights early steps more heavily: an error there displaces every later position."));
   const r = el("div", { class: "row2" }), a = el("div"), b = el("div"); r.append(a, b); d.append(r);
   requestAnimationFrame(() => {
     planChart(a, a.clientWidth, 360).update(F.pos[NS].map(p => p.map(q => [q[0], q[1]])));
@@ -384,18 +384,18 @@ panels.output = d => {
 
 // ---------------------------------------------------------------------- selection and the guided pass
 function select(id) { selected = id; syncSel(); const d = $("#detail"); d.innerHTML = ""; (panels[id] || panels.flow)(d); }
-const ORDER = ["past", "pastenc", "aircraft", "clearance", "memory", "noise", "dit", "flow", "output"];
+const ORDER = ["past", "pastenc", "aircraft", "instruction", "memory", "noise", "dit", "flow", "output"];
 const NARR = { past: "Raw ADS-B samples of the last half-minute come in.", pastenc: "They are encoded once, modulated by the aircraft class.",
-  aircraft: "The performance class becomes one conditioning vector.", clearance: "The clearance becomes three axis tokens.", memory: "Past and clearance tokens form the memory the flow reads.",
+  aircraft: "The performance class becomes one conditioning vector.", instruction: "The instruction becomes three axis tokens.", memory: "Past and instruction tokens form the memory the flow reads.",
   noise: "Sampling starts from pure noise over the future controls.", dit: "At each flow step the DiT stack predicts a velocity.", flow: "Integrating that velocity turns noise into trajectories.",
-  output: "The controls are dead-reckoned into the forecast." };
-const EDGE_FOR = { pastenc: 0, aircraft: 1, clearance: 2, memory: 3, noise: 8, dit: 6, flow: 9, output: 10 };
+  output: "The controls are integrated into the predicted trajectory." };
+const EDGE_FOR = { pastenc: 0, aircraft: 1, instruction: 2, memory: 3, noise: 8, dit: 6, flow: 9, output: 10 };
 let running = false;
 $("#play").onclick = async () => {
   if (running) return; running = true; $("#play").disabled = true;
   for (let n = 0; n < ORDER.length; n++) {
     const id = ORDER[n];
-    gN.classed("lit", d => d.id === id || (id === "aircraft" && d.id === "acemb") || (id === "clearance" && d.id === "dirtok"));
+    gN.classed("lit", d => d.id === id || (id === "aircraft" && d.id === "acemb") || (id === "instruction" && d.id === "dirtok"));
     $("#status").textContent = `${n + 1}/${ORDER.length} · ${NARR[id]}`;
     select(id);
     const ei = EDGE_FOR[id];

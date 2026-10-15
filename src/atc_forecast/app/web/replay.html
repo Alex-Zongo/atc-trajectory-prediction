@@ -70,7 +70,7 @@ footer canvas { width: 100%; height: 100%; display: block; cursor: ew-resize; }
     <button class="btn primary" id="play">▶ Play</button>
     <button class="btn" id="restart" title="Restart">↺</button>
     <div class="seg" id="speed"></div>
-    <span class="ctl"><input type="checkbox" id="pause" checked> pause at clearances</span>
+    <span class="ctl"><input type="checkbox" id="pause" checked> pause at instructions</span>
     <span class="ctl"><input type="checkbox" id="follow" checked> follow</span>
     <span class="ctl"><input type="checkbox" id="three" checked> 3-D</span>
     <span class="ctl">alt ×<input type="range" id="exag" min="1" max="10" step="0.5" value="2.5" style="width:70px"><span id="exagv" class="mono">2.5</span></span>
@@ -92,7 +92,7 @@ footer canvas { width: 100%; height: 100%; display: block; cursor: ew-resize; }
 <script>/*__BASE_JS__*/</script>
 <script>
 const T = P.track, EV = P.events, NT = T.t.length, FT2M = 0.3048;
-const COND_LABEL = { belief: "Belief", point: "Point (MAP)", oracle: "Oracle", none: "No instruction" };
+const COND_LABEL = { belief: "Full distribution", point: "Single best guess", oracle: "True instruction", none: "No instruction" };
 const state = { now: Math.max(0, (EV[0]?.t ?? 0) - 45), playing: false, speed: 8, exag: 2.5, tiles: 0.6,
   follow: true, three: true, pauseAt: true, enabled: new Set(P.conditions), fired: new Set(),
   bubble: null, reveal: {}, active: null, hold: false };
@@ -217,14 +217,14 @@ function renderHud(s) {
     <div class="grid4"><span class="k">ALT</span><span class="k">GS</span><span class="k">HDG</span><span class="k">V/S</span>
     <span class="v">${fmt.alt(s.alt)}</span><span class="v">${fmt.n(s.gs)} kt</span><span class="v">${fmt.hdg(s.trk)}</span>
     <span class="v">${s.vr > 150 ? "↑" : s.vr < -150 ? "↓" : "→"}${fmt.n(Math.abs(s.vr))}</span></div>
-    <div class="clr"><span class="k">T+ ${fmt.t(state.now)} · clearances ${EV.filter(e => e.t <= state.now).length}/${EV.length}</span>
+    <div class="clr"><span class="k">T+ ${fmt.t(state.now)} · instructions ${EV.filter(e => e.t <= state.now).length}/${EV.length}</span>
     ${cur ? `<div style="margin-top:4px"><span class="muted">issued</span> <b>${cur.issued}</b><br><span class="muted">decoded</span> <b>${cur.map}</b></div>` : ""}</div>`;
 }
 
 const legend = $("#legend");
 function renderLegend() {
   legend.innerHTML = `<span><i style="background:${C.truth}"></i>recorded flight</span>` +
-    P.conditions.filter(c => state.enabled.has(c)).map(c => `<span><i style="background:${C[c]}"></i>${COND_LABEL[c]} forecast</span>`).join("") +
+    P.conditions.filter(c => state.enabled.has(c)).map(c => `<span><i style="background:${C[c]}"></i>${COND_LABEL[c]} prediction</span>`).join("") +
     `<span><i style="background:${C.text2};height:4px"></i>runway</span><span><i style="background:${C.accent};width:7px;height:7px;border-radius:50%"></i>navaid</span>`;
 }
 
@@ -264,7 +264,7 @@ async function fire(e) {
   await typeText($(".tx", bubble), e.text || "(nothing intelligible)", 1400);
   if (state.bubble !== token) return;
   const dec = $(".dec", bubble);
-  dec.innerHTML = `<span class="shimmer">Stage 1 · decoding the clearance posterior…</span>`;
+  dec.innerHTML = `<span class="shimmer">Stage 1 · decoding the instruction posterior…</span>`;
   await sleep(550);
   if (state.bubble !== token) return;
   dec.innerHTML = `<div style="display:flex;justify-content:space-between"><span class="label">Stage 1 posterior</span><span class="muted" style="font-size:11px">${P.k} draws</span></div>` +
@@ -411,7 +411,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 renderLegend();
-if (!EV.length) { $("#log").append(el("div", { class: "muted" }, "No clearances in this leg.")); }
+if (!EV.length) { $("#log").append(el("div", { class: "muted" }, "No instructions in this leg.")); }
 requestAnimationFrame(frame);
 setTimeout(() => { state.playing = true; syncPlay(); }, 600);
 </script>

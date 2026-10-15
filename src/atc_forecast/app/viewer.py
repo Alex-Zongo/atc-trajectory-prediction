@@ -1,4 +1,4 @@
-"""Interactive viewer for the two-stage forecast.
+"""Interactive viewer for the two-stage trajectory prediction.
 
     streamlit run src/atc_forecast/app/viewer.py -- \
         --stage1 runs/stage1.pt --stage2 runs/stage2.pt \
@@ -8,15 +8,15 @@
 Four pages share one sidebar (the window, how its clearance is observed, and how the
 models sample), so every page is always looking at the same case:
 
-  Forecast             the clearance posterior and the trajectory distribution under each
-                       condition, on the real airspace, with per-axis profiles and a 3-D view
+  Prediction           Stage 1's distribution over instructions and the trajectory
+                       distribution under each condition, on the real airspace, with per-axis profiles and a 3-D view
   Flight replay        a whole held-out leg flown back with both models running at every
                        clearance
   Inside the models    both architectures, traced on this input, operation by operation
   How the data is built  the dataset pipeline replayed on this leg's raw ADS-B
 
 `--adsb` points at the raw ADS-B day files the windows were cut from. Without it the
-forecast page falls back to a plan view in nautical miles, and the replay and dataset
+prediction page falls back to a plan view in nautical miles, and the replay and dataset
 pages are unavailable, since both need absolute positions.
 """
 
@@ -62,7 +62,7 @@ def cli():
 
 
 A = cli()
-st.set_page_config(page_title="ATC trajectory forecast", layout="wide", page_icon="✈️")
+st.set_page_config(page_title="ATC trajectory prediction", layout="wide", page_icon="✈️")
 
 
 # --------------------------------------------------------------------------------------
@@ -139,7 +139,7 @@ def _filtered() -> np.ndarray:
 def sidebar():
     with st.sidebar:
         st.markdown("### Case")
-        st.multiselect("clearance must contain", ["turn", "climb", "descend", "speed"],
+        st.multiselect("instruction must contain", ["turn", "climb", "descend", "speed"],
                        key="filt_clause")
         st.selectbox("leg type", ["any", "arrival", "departure", "overflight"], key="filt_leg")
         cand = _filtered()
@@ -179,7 +179,7 @@ def sidebar():
             text = st.text_area("transcript", "southwest one two three turn left heading "
                                 "two seven zero descend and maintain five thousand",
                                 help="Stage 1 reads this with this window's aircraft state; "
-                                     "Stage 2 forecasts from this window's recorded past.")
+                                     "Stage 2 predicts from this window's recorded past.")
             speak = st.toggle("speak numbers", value=True,
                               help="Rewrite numerals as a controller says them (270 → two "
                                    "seven zero, 5,000 → five thousand, FL350 → flight level "
@@ -198,8 +198,8 @@ def sidebar():
                           custom_text=text, speak_numbers=speak, seed=int(oseed))
 
         st.markdown("### Sampling")
-        k = st.slider("clearance draws (Stage 1)", 1, 32, 12)
-        exec_k = st.slider("executions per clearance", 1, 16, 6)
+        k = st.slider("instruction draws (Stage 1)", 1, 32, 12)
+        exec_k = st.slider("executions per instruction", 1, 16, 6)
         n_steps = st.slider("ODE steps", 4, 40, 12)
         guidance = st.slider("guidance", 0.0, 3.0, 1.0, 0.1)
         calibrate = st.toggle("apply fitted λ", value=A.lambda_json is not None,
@@ -331,7 +331,7 @@ def page_forecast():
         with st.container(border=True):
             st.markdown(f"**Stage 1 posterior** · {samp.k} draws, T = "
                         f"{R['stage1'].temperature:.2f}")
-            st.dataframe(pd.DataFrame(modes[:5], columns=["clearance", "share"]),
+            st.dataframe(pd.DataFrame(modes[:5], columns=["instruction", "share"]),
                          hide_index=True, width="stretch", height=150,
                          column_config={"share": st.column_config.ProgressColumn(
                              "share", min_value=0.0, max_value=1.0, format="percent")})
@@ -382,7 +382,7 @@ def page_forecast():
                             width="stretch")
             st.caption("Bands are the 10–90% and 25–75% ranges of each condition. Dashed: the "
                        "issued target. Right margin: the targets Stage 1 decoded (ticks are "
-                       "draws, the diamond is the MAP). Clearance speeds are indicated "
+                       "draws, the diamond is the best guess). Instruction speeds are indicated "
                        "airspeed and this is ground speed, so wind separates the two.")
     with tab_3d:
         c1, c2 = st.columns([1, 1])
@@ -391,7 +391,7 @@ def page_forecast():
         zx = c2.slider("vertical exaggeration", 0.5, 4.0, 1.0, 0.25, key="z3d")
         st.plotly_chart(plots.view_3d(view, sel, color_by=color_by, z_exag=zx), width="stretch")
         st.caption("Drag to rotate. The shadow is the recorded ground track. Colouring by "
-                   "speed adds the fourth dimension a clearance can command.")
+                   "speed adds the fourth dimension an instruction can command.")
     with tab_m:
         show = ["kde", "cov80", "energy_traj", "energy_endpoint", "avgADE_nm", "minADE_nm",
                 "vMAE_ft"]
@@ -413,38 +413,38 @@ def page_replay():
                                        lt=("leg_type", "first")).reset_index())
     legs = legs[legs["n"] >= 2].sort_values("n", ascending=False)
     opts = [row["leg_id"]] + [g for g in legs["leg_id"] if g != row["leg_id"]]
-    lab = {r.leg_id: f"{r.cs or r.leg_id.split('_')[1]} · {r.lt} · {r.n} clearances"
+    lab = {r.leg_id: f"{r.cs or r.leg_id.split('_')[1]} · {r.lt} · {r.n} instructions"
            for r in legs.itertuples()}
     c1, c2, c3, c4 = st.columns([2.2, 1, 1, 1.6])
     leg = c1.selectbox("leg", opts, format_func=lambda g: lab.get(g, g) + (
         "  (current window)" if g == row["leg_id"] else ""))
-    k = c2.slider("clearance draws", 2, 16, 8, key="rk")
+    k = c2.slider("instruction draws", 2, 16, 8, key="rk")
     ek = c3.slider("executions each", 1, 8, 3, key="rek")
-    conds = c4.pills("forecasts", list(CONDITIONS), selection_mode="multi",
+    conds = c4.pills("predictions", list(CONDITIONS), selection_mode="multi",
                      default=["belief", "point"], format_func=LABELS.get, key="rconds")
     if not conds:
-        st.info("Pick at least one forecast condition.")
+        st.info("Pick at least one condition.")
         return
     n = len(leg_positions(leg))
     if n > 60:
-        st.caption(f"This leg has {n} clearances; building it takes a little longer.")
+        st.caption(f"This leg has {n} instructions; building it takes a little longer.")
     payload = replay_for(leg, obs, k, ek, min(samp.n_steps, 12), samp.guidance,
                          samp.calibrate, tuple(c for c in CONDITIONS if c in conds), samp.seed)
     if obs.mode == "custom":
-        st.info("Custom text is heard at EVERY clearance in the leg, so each forecast shows "
+        st.info("Custom text is heard at EVERY instruction in the leg, so each prediction shows "
                 "how this flight would respond to that one instruction at that moment.")
     components.render("replay", payload, height=820)
     st.caption("The aircraft flies its recorded ADS-B track. At each maneuver onset the "
-               "clearance is heard, Stage 1 decodes it and Stage 2 forecasts the next minute "
+               "instruction is heard, Stage 1 decodes it and Stage 2 predicts the next minute "
                "from the past it has actually seen; the aircraft then flies on through that "
-               "forecast. Space toggles playback; drag the timeline to scrub; click a radio "
+               "prediction. Space toggles playback; drag the timeline to scrub; click a radio "
                "log entry to jump to it.")
 
 
 def page_models():
     pos, obs, samp = CASE
     o = obs_for(pos, obs)
-    t1, t2 = st.tabs(["Stage 1 · clearance posterior", "Stage 2 · trajectory flow"])
+    t1, t2 = st.tabs(["Stage 1 · instruction posterior", "Stage 2 · trajectory flow"])
     with t1:
         c1, c2, c3 = st.columns([3, 1, 1])
         text = c1.text_input("transcript to trace", o["text"], key="tr_text",
@@ -461,7 +461,7 @@ def page_models():
     with t2:
         greedy_src = forecast_for(pos, obs, samp)[1]
         c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-        src = c1.segmented_control("clearance fed to Stage 2",
+        src = c1.segmented_control("instruction fed to Stage 2",
                                    ["oracle", "Stage-1 MAP", "none (dropped)"],
                                    default="oracle", key="tr2_src") or "oracle"
         n_steps = c2.slider("ODE steps", 4, 20, 10, key="tr2_n")
@@ -497,7 +497,7 @@ def page_dataset():
 
 CASE = sidebar()
 nav = st.navigation([
-    st.Page(page_forecast, title="Forecast", icon=":material/flight:", url_path="forecast"),
+    st.Page(page_forecast, title="Prediction", icon=":material/flight:", url_path="prediction"),
     st.Page(page_replay, title="Flight replay", icon=":material/play_circle:", url_path="replay"),
     st.Page(page_models, title="Inside the models", icon=":material/hub:", url_path="models"),
     st.Page(page_dataset, title="How the data is built", icon=":material/dataset:",

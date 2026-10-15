@@ -106,9 +106,9 @@ def plan_map(view, conds, feats, tile_opacity=0.55, n_lines=40, theme=None):
     tla, tlo = ll(view["truth"]["east_nm"][m], view["truth"]["north_nm"][m])
     fig.add_trace(go.Scattermap(lat=tla, lon=tlo, mode="lines", name="recorded future",
                                 line=dict(width=3, color=c["truth"]), hoverinfo="skip"))
-    fig.add_trace(go.Scattermap(lat=[lat0], lon=[lon0], mode="markers", name="clearance onset",
+    fig.add_trace(go.Scattermap(lat=[lat0], lon=[lon0], mode="markers", name="instruction onset",
                                 marker=dict(size=12, color=c["truth"]),
-                                hovertemplate="clearance onset<extra></extra>"))
+                                hovertemplate="instruction onset<extra></extra>"))
 
     allla = np.concatenate([pla, tla, *[ll(d["east_nm"], d["north_nm"])[0].ravel()
                                         for d in conds.values()]])
@@ -202,14 +202,14 @@ def axis_profiles(view, conds, targets, samples_targets, show_lines=False, theme
             fig.add_trace(go.Scatter(x=[H + 3.0], y=tf(np.array([map_v])), mode="markers",
                                      marker=dict(symbol="diamond", size=10, color=c["point"],
                                                  line=dict(width=2, color=c["surface"])),
-                                     name="Stage-1 MAP", showlegend=ri == 1, legendgroup="map",
-                                     hovertemplate="Stage-1 MAP %{y:.0f}<extra></extra>"), ri, 1)
+                                     name="Stage-1 best guess", showlegend=ri == 1, legendgroup="map",
+                                     hovertemplate="Stage-1 best guess %{y:.0f}<extra></extra>"), ri, 1)
         fig.add_vline(x=0, line=dict(width=1, color=c["muted"], dash="dot"), row=ri, col=1)
     fig.update_layout(**_base_layout(c, height=640, margin=dict(l=8, r=8, t=92, b=8),
                                      legend=dict(orientation="h", y=1.07, x=0, yanchor="bottom")))
     fig.update_xaxes(gridcolor=c["grid"], zeroline=False, linecolor=c["border"],
                      range=[min(past["t_s"].min(), -5) - 1, H + 6])
-    fig.update_xaxes(title_text="seconds from clearance onset", row=3, col=1)
+    fig.update_xaxes(title_text="seconds from instruction onset", row=3, col=1)
     fig.update_yaxes(gridcolor=c["grid"], zeroline=False, linecolor=c["border"])
     for a in fig.layout.annotations:
         a.update(font=dict(size=12, color=c["text"]), x=0, xanchor="left")

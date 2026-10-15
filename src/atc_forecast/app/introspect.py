@@ -26,7 +26,7 @@ from ..units import (ALT_SCALE_FT, ENGINE_VOCAB, GS_SCALE_KT, HEAD_BIN_DEG, M_TO
                      POS_SCALE_M, SPD_SCALE_KT, VR_SCALE_FPM, WAKE_VOCAB)
 
 FIELD_INFO = {
-    "is_clearance": ("Is a clearance", "transmission carries an instruction"),
+    "is_clearance": ("Is an instruction", "the transmission carries an instruction"),
     "pres_lat": ("Lateral present", "a turn clause is present"),
     "dir_lat": ("Turn direction", "right (1) or left (0)"),
     "hdg": ("Heading", "assigned heading, 72 bins of 5 deg"),

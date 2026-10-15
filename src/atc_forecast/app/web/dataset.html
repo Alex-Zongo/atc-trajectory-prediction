@@ -66,10 +66,10 @@ const STEPS = [
   { id: "rates", t: "Rates & thresholds", d: `Differentiating the smoothed channels gives turn rate, vertical speed and acceleration. Each is labelled against a threshold (|turn| > ${PR.turn_rate_th}°/s, |v/s| > ${PR.vs_th} m/s, |accel| > ${PR.accel_th} m/s²), one label per channel a controller commands.` },
   { id: "merge", t: "Merge short runs", d: `The three labels are combined into one state per sample. Any run shorter than ${PR.min_seg_s} s is ADS-B jitter, not a maneuver, and is absorbed into its neighbour, shortest first.` },
   { id: "segments", t: "Segments", d: `A segment is a maximal run of constant state. A run labelled straight whose heading still drifts by ≥ ${PR.cum_turn_th}° is relabelled as a turn, which catches gradual turns. A segment with any non-steady channel is a maneuver; the rest are steady.` },
-  { id: "phrase", t: "Clearances", d: "Each maneuver onset gets the clearance that would have produced it, taken from the segment's EXIT values and rounded the way a controller speaks: headings to 5°, altitudes to 1,000 ft (flight levels above FL180), speeds to 10 kt. Steady segments get no clearance." },
+  { id: "phrase", t: "Instructions", d: "Each maneuver onset gets the instruction that would have produced it, taken from the segment's EXIT values and rounded the way a controller speaks: headings to 5°, altitudes to 1,000 ft (flight levels above FL180), speeds to 10 kt. Steady segments get no instruction." },
   { id: "legs", t: "Legs", d: `Segments are grouped into legs, maximal runs with no gap longer than ${PR.leg_gap_s} s. One aircraft flies several legs in a day; a leg is the unit for train/validation splits, so no trajectory point ever lands on both sides.` },
   { id: "window", t: "Stage-2 window", d: "At each maneuver onset a window is cut. The past is the raw samples in the half-minute strictly BEFORE the onset; the future is 60 s on a 1 Hz grid, truncated at the next maneuver's onset and masked wherever coverage was missing. This is the stored window, exactly as Stage 2 trained on it." },
-  { id: "observe", t: "Observation channel", d: "Last, the clean clearance is turned into what a recognizer might hear: spoken out, passed through a channel fitted to a real ATC recognizer (dropouts, digit confusions, flipped verbs), and wrapped in radio context. Each draw gives a different Stage-1 training example for the same clearance." },
+  { id: "observe", t: "Observation channel", d: "Last, the clean instruction is turned into what a recognizer might hear: spoken out, passed through a channel fitted to a real ATC recognizer (dropouts, digit confusions, flipped verbs), and wrapped in radio context. Each draw gives a different Stage-1 training example for the same instruction." },
 ];
 let step = 0, playing = false;
 
@@ -83,7 +83,7 @@ function caption() {
     raw: [[NPT, "samples in view"], [S.callsign, "callsign"]], phase: [[kept, "kept"], [NPT - kept, "dropped"]],
     gaps: [[SG.length, "tracks"], [PR.max_gap_s + " s", "max gap"]], smooth: [[PR.smooth_win, "window"]], rates: [[3, "channels"]],
     merge: [[PR.min_seg_s + " s", "min run"]], segments: [[SEG.filter(x => x.in_leg).length, "segments"], [SEG.filter(x => x.in_leg && x.is_maneuver).length, "maneuvers"]],
-    phrase: [[SEG.filter(x => x.in_leg && x.is_maneuver).length, "clearances"]], legs: [[S.legs.length, "legs today"], [leg ? leg.n : "–", "segments in leg"]],
+    phrase: [[SEG.filter(x => x.in_leg && x.is_maneuver).length, "instructions"]], legs: [[S.legs.length, "legs today"], [leg ? leg.n : "–", "segments in leg"]],
     window: [[W.past_t.length, "past obs"], [W.fut_mask.filter(Boolean).length + "/60", "future valid"]], observe: [[S.draws.length, "draws"]] }[s.id] || [];
   $("#cap").innerHTML = `<div><h3>${step + 1}. ${s.t}</h3><p>${s.d}</p></div><div class="nums">${nums.map(([v, k]) => `<div class="num"><b>${typeof v === "number" ? v.toLocaleString() : v}</b><span>${k}</span></div>`).join("")}</div>`;
   [...stepsEl.querySelectorAll(".step")].forEach((e, i) => { e.classList.toggle("on", i === step); e.classList.toggle("done", i < step); });
@@ -129,7 +129,7 @@ function mapLayers() {
     L.push(new deck.ScatterplotLayer({ id: "onsets", data: on, getPosition: s => [s.lon0, s.lat0], getFillColor: rgb(C.surface), getLineColor: rgb(C.text), stroked: true, lineWidthMinPixels: 2, getRadius: 5, radiusUnits: "pixels" }));
     if (mapMode === "phrase") L.push(new deck.TextLayer({ id: "ph", data: on, getPosition: s => [s.lon0, s.lat0], getText: s => s.directive.replace(/\.$/, ""), getSize: 11.5, getColor: rgb(C.text),
       getPixelOffset: [8, -10], getTextAnchor: "start", fontFamily: "Inter, sans-serif", fontWeight: 600, outlineWidth: 4, outlineColor: rgb(C.surface, 235), fontSettings: { sdf: true }, characterSet: "auto",
-      // labels that would overlap are hidden, focus clearance first; zoom in to reveal the rest
+      // labels that would overlap are hidden, focus instruction first; zoom in to reveal the rest
       extensions: [new deck.CollisionFilterExtension()], collisionEnabled: true, getCollisionPriority: s => s.is_focus ? 1000 : -s.seg_idx }));
   }
   if (["window", "observe"].includes(mapMode)) {
@@ -147,7 +147,7 @@ function legendFor() {
     raw: [[C.text2, "ADS-B sample"]], phase: Object.entries(PHASE).map(([k, v]) => [v, k.replace("_", " ")]).concat([[C.muted, "dropped (faint)"]]),
     gaps: [[C.text2, "kept samples"]], smooth: [[C.text, "smoothed track"]],
     segments: [[C.accent, "turn left"], [C.belief, "turn right"], [C.oracle, "climb"], [C.point, "descend"], ["#eda100", "accelerate"], ["#e87ba4", "decelerate"], [C.muted, "steady / other leg"]],
-    window: [[C.text, "past: raw obs before onset"], [C.oracle, "clearance onset"], [C.belief, "future: valid 1 Hz step"], [C.muted, "future: masked (hollow)"]],
+    window: [[C.text, "past: raw obs before onset"], [C.oracle, "instruction onset"], [C.belief, "future: valid 1 Hz step"], [C.muted, "future: masked (hollow)"]],
   };
   const m = { rates: "segments", merge: "segments", phrase: "segments", legs: "segments", observe: "window" }[mapMode] || mapMode;
   $("#mlegend").innerHTML = (items[m] || []).map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join("");
@@ -277,7 +277,7 @@ const SIDE = {
     ["lateral", "vertical", "speed"].forEach((nm, k) => ribbonPanel(`${nm} label`, [
       { label: "before", get: g => g.raw_state, col: part(k), delay: 0 }, { label: "after", get: g => g.state, col: part(k), delay: 800 }]));
     let flips = 0, runs = 0; SG.forEach(g => { for (let i = 1; i < g.t.length; i++) { if (g.raw_state[i] !== g.raw_state[i - 1]) flips++; if (g.state[i] !== g.state[i - 1]) runs++; } });
-    sideNote(`<b>${flips}</b> label changes before merging, <b>${runs}</b> after. Every flicker shorter than ${PR.min_seg_s} s is absorbed into its neighbour, which is what stops jitter from becoming a fake clearance.`);
+    sideNote(`<b>${flips}</b> label changes before merging, <b>${runs}</b> after. Every flicker shorter than ${PR.min_seg_s} s is absorbed into its neighbour, which is what stops jitter from becoming a fake instruction.`);
     legItems([[C.accent, "left"], [C.belief, "right"], [C.oracle, "climb"], [C.point, "descend"], ["#eda100", "accelerate"], ["#e87ba4", "decelerate"]]);
   },
   segments() {
@@ -314,9 +314,9 @@ const SIDE = {
       s.append("text").attr("x", x(l.t0) + 4).attr("y", 80).attr("font-size", 10.5).attr("class", "mono").attr("fill", on ? C.text : C.muted).text(`L${l.leg_id.split("_L").pop()} · ${l.n_man}/${l.n}`); });
     s.append("text").attr("x", 10).attr("y", 102).attr("font-size", 10.5).attr("fill", C.muted).text(`gaps over ${PR.leg_gap_s} s start a new leg · labels: maneuvers / segments`);
     const tb = el("div", { style: "margin-top:8px" });
-    tb.append(el("div", { class: "label" }, "this leg, in order: clearances at maneuver onsets, nothing between"));
+    tb.append(el("div", { class: "label" }, "this leg, in order: instructions at maneuver onsets, nothing between"));
     SEG.filter(z => z.in_leg).forEach(z => tb.append(el("div", { style: "display:grid;grid-template-columns:50px 1fr;gap:6px;padding:2px 0;font-size:12px" }, el("span", { class: "mono muted" }, `seg ${z.seg_idx}`),
-      el("span", { class: z.is_maneuver ? "" : "muted" }, z.is_maneuver ? z.readable : "— steady, no clearance —"))));
+      el("span", { class: z.is_maneuver ? "" : "muted" }, z.is_maneuver ? z.readable : "— steady, no instruction —"))));
     side.append(tb);
   },
   window() {
@@ -339,7 +339,7 @@ const SIDE = {
       ["Future truncated at the next onset", W.next_onset != null && W.next_onset < W.onset + W.H ? `the next maneuver starts at +${(W.next_onset - W.onset).toFixed(0)} s; steps after it are masked.` : `no maneuver follows within ${W.H} s, so the full horizon is used where coverage allows.`]];
     cuts.forEach(([a, b]) => side.append(el("div", { class: "cut" }, el("span", { class: "ok" }, "✓"), el("div", {}, el("b", {}, a), " — ", b))));
     const dv = W.directive, nm = ["has_turn", "right", "sin ψ", "cos ψ", "has_vert", "climb", "alt/45k", "has_spd", "accel", "spd/600"];
-    side.append(el("div", { class: "label", style: "margin-top:10px" }, "the clearance as Stage 2 sees it: directive vector δ"));
+    side.append(el("div", { class: "label", style: "margin-top:10px" }, "the instruction as Stage 2 sees it: directive vector δ"));
     const row = el("div", { style: "display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:4px" });
     dv.forEach((v, i) => row.append(el("div", { style: `text-align:center;padding:5px 2px;border-radius:6px;background:${divColor(v)};font-size:10.5px` }, el("div", { class: "mono", style: "font-weight:600;color:var(--text)" }, v.toFixed(2)), el("div", { class: "muted", style: "font-size:9.5px" }, nm[i]))));
     side.append(row);
@@ -358,7 +358,7 @@ const SIDE = {
       d.tokens.forEach((t, i) => setTimeout(() => toks.append(el("span", { class: "tok" }, t)), i * 25));
       await sleep(300 + d.tokens.length * 25);
     }
-    sideNote("Each of these, paired with the clean clearance as its label, is one Stage-1 training example. The (window, clearance) pair from the previous step is the Stage-2 example.");
+    sideNote("Each of these, paired with the clean instruction as its label, is one Stage-1 training example. The (window, instruction) pair from the previous step is the Stage-2 example.");
   },
 };
 

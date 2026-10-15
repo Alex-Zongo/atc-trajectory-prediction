@@ -15,8 +15,8 @@ from ..evaluation.scores import endpoint_metrics, energy_score_traj
 from ..units import (ALT_SCALE_FT, GS_SCALE_KT, M_TO_NM, POS_SCALE_M, VR_SCALE_FPM)
 
 CONDITIONS = ("oracle", "none", "point", "belief")
-LABELS = {"oracle": "Oracle clearance", "none": "No instruction",
-          "point": "Point (Stage-1 MAP)", "belief": "Belief (Stage-1 samples)"}
+LABELS = {"oracle": "True instruction", "none": "No instruction",
+          "point": "Single best guess", "belief": "Full distribution"}
 
 
 def pos_physical(pos: np.ndarray) -> dict:

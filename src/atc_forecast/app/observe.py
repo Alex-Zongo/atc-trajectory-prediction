@@ -23,7 +23,7 @@ from ..data.phraseology import (round_heading, round_speed, segment_directive, s
                                 spoken_digits)
 from ..data.text import UNK, augment_transcript, tokenize
 
-MODES = {"clean": "Clean (issued clearance)", "channel": "ASR channel",
+MODES = {"clean": "Clean (issued instruction)", "channel": "ASR channel",
          "custom": "Custom text"}
 # The shipped channel emits 0.82 +- 0.05, so that is the confidence Stage 1 was trained
 # around. A clean transcript gets the same value by default, which keeps the comparison

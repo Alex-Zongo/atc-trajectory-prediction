@@ -148,7 +148,7 @@ const head = (title, shape, lede) => [el("div", { class: "dh" }, el("h3", {}, ti
 const panels = {};
 panels.text = d => {
   d.append(...head("Transcript u and confidence κ", "string, scalar",
-    "What the recognizer heard, exactly as Stage 1 receives it, together with its confidence. Callsigns and surrounding phraseology are deliberately left in: the model has to learn to read past them to the clearance."));
+    "What the recognizer heard, exactly as Stage 1 receives it, together with its confidence. Callsigns and surrounding phraseology are deliberately left in: the model has to learn to read past them to the instruction."));
   d.append(el("div", { class: "mono", style: "font-size:16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)" }, S.text || "(empty)"));
   d.append(el("div", { class: "kv", style: "margin-top:12px" }, el("span", { class: "k" }, "confidence κ"), el("span", { class: "mono" }, S.confidence.toFixed(3)),
     el("span", { class: "k" }, "sampling temperature"), el("span", { class: "mono" }, S.temperature.toFixed(3) + "  (fitted post hoc on the energy score)"),
@@ -287,7 +287,7 @@ panels.ctx = d => {
 };
 
 // ---------------------------------------------------------------------- the decoder
-const GROUPS = [["clearance", [0]], ["lateral", [1, 2, 3]], ["vertical", [4, 5, 6]], ["speed", [7, 8, 9]]];
+const GROUPS = [["instruction", [0]], ["lateral", [1, 2, 3]], ["vertical", [4, 5, 6]], ["speed", [7, 8, 9]]];
 let path = "greedy", draw_j = 0, cellSel = 3, showUngrounded = false, revealUpTo = 10;
 function stepOf(i) { return path === "greedy" ? S.greedy[i] : S.samples[i]; }
 const rowOf = () => path === "greedy" ? 0 : draw_j;
@@ -322,7 +322,7 @@ function miniDist(svgSel, i, w, h) {
 }
 panels.gru = d => {
   d.append(...head("Autoregressive decoder", `GRUCell(${D.hidden}) · 10 heads · Bernoulli / categorical(72) / mixture(${D.k_mix})`,
-    "The clearance is decoded one field at a time. Each head reads the recurrent state, which has already absorbed the transcript context and every earlier field's value, so the fields co-vary: a sampled heading knows which direction was sampled before it. Each value is embedded and fed back into the GRU. Clauses that are absent are still decoded but carry no likelihood, and are dimmed here."));
+    "The instruction is decoded one field at a time. Each head reads the recurrent state, which has already absorbed the transcript context and every earlier field's value, so the fields co-vary: a sampled heading knows which direction was sampled before it. Each value is embedded and fed back into the GRU. Clauses that are absent are still decoded but carry no likelihood, and are dimmed here."));
   const ctr = el("div", { class: "ctrls" }), pseg = el("div", { class: "seg" });
   pseg.append(el("button", { "data-p": "greedy", onclick: () => { path = "greedy"; redraw(); } }, "MAP (argmax, T = 1)"));
   const sel = el("select", { style: "padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)", onchange: ev => { path = "sample"; draw_j = +ev.target.value; redraw(); } },
@@ -445,8 +445,8 @@ panels.gru = d => {
   redraw();
 };
 panels.out = d => {
-  d.append(...head("Joint clearance samples", `${S.k} ancestral draws at T = ${S.temperature.toFixed(2)}`,
-    "Each line is one complete clearance drawn by running the chain from start to finish. Because every field is conditioned on the ones before it, the draws are coherent: no line combines a present heading with an absent turn. Spread across the lines is the communication uncertainty that Stage 2 propagates. The MAP clearance is drawn in the point colour."));
+  d.append(...head("Joint instruction samples", `${S.k} ancestral draws at T = ${S.temperature.toFixed(2)}`,
+    "Each line is one complete instruction drawn by running the chain from start to finish. Because every field is conditioned on the ones before it, the draws are coherent: no line combines a present heading with an absent turn. Spread across the lines is the communication uncertainty that Stage 2 propagates. The MAP instruction is drawn in the point colour."));
   const axes = S.fields.map((f, i) => ({ f, i }));
   const val = (rec, r) => rec.value[r];
   const w = d.clientWidth - 30 || 980, h = 330, x = d3.scalePoint(axes.map(a => a.i), [60, w - 60]);
@@ -467,7 +467,7 @@ panels.out = d => {
     const g = s.append("g").attr("class", "axis").attr("transform", `translate(${x(i)},0)`).call(d3.axisLeft(ys[i]).ticks(f.type === "bern" ? 1 : 5).tickFormat(v => f.type === "bern" ? v : f.name === "alt" ? d3.format(".2s")(v) : v));
     s.append("text").attr("x", x(i)).attr("y", 14).attr("text-anchor", "middle").attr("font-size", 11).attr("font-weight", 600).attr("fill", C.text).text(f.label);
   });
-  d.append(el("div", { class: "legend-inline" }, el("span", {}, el("i", { style: `background:${C.belief}` }), `${S.k} sampled clearances (hover one)`), el("span", {}, el("i", { style: `background:${C.point}` }), "MAP clearance")));
+  d.append(el("div", { class: "legend-inline" }, el("span", {}, el("i", { style: `background:${C.belief}` }), `${S.k} sampled instructions (hover one)`), el("span", {}, el("i", { style: `background:${C.point}` }), "MAP instruction")));
 };
 function fmtv(i, v) { const f = S.fields[i]; if (f.type === "bern") return v > .5 ? "1" : "0"; if (f.name === "hdg") return fmt.hdg(v); if (f.name === "alt") return fmt.alt(v); return fmt.n(v) + " kt"; }
 
