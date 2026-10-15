@@ -35,7 +35,7 @@ dependencies, so everyone gets the same versions:
 
 ```bash
 uv sync --all-extras               # creates .venv from the lock
-uv run pytest                      # 17 tests, no data or network needed
+uv run pytest                      # 18 tests, no data or network needed
 ```
 
 `uv run <cmd>` uses that environment without activating anything, so every command below
@@ -63,7 +63,7 @@ command installs them where every script expects them:
 ```bash
 gh auth login                                  # once; needs access to this repository
 python scripts/artifacts.py fetch              # weights, windows, meta (~420 MB)
-python scripts/artifacts.py fetch --adsb       # also the raw ADS-B days (~760 MB)
+python scripts/artifacts.py fetch --adsb       # also the raw ADS-B (~760 MB); the viewer needs it
 ```
 
 Every asset is checked against `SHA256SUMS`. Without the GitHub CLI, download the assets
@@ -81,10 +81,9 @@ data/dataset/meta.parquet            maneuver segments, the Stage-1 training set
 data/dataset/meta_grounded.parquet   the same, with the onset state joined on
 data/windows_raw/windows.npz         Stage-2 windows
 data/windows_raw/windows_meta.parquet
-data/adsb/adsb_<day>.parquet         raw ADS-B, only needed to rebuild the dataset
-data/cache/aircraftDatabase.csv      optional; avoids re-downloading ~95 MB
 data/adsb/adsb_<day>.parquet         raw ADS-B the windows were cut from; the viewer reads it
                                      for the basemap, the flight replay and the dataset page
+data/cache/aircraftDatabase.csv      optional; avoids re-downloading ~95 MB
 ```
 
 `meta_grounded.parquet` is derived, so it can always be regenerated:
@@ -230,8 +229,7 @@ thing.
 ```bash
 streamlit run src/atc_forecast/app/viewer.py -- --stage1 runs/stage1.pt \
     --stage2 runs/stage2.pt --data data/windows_raw \
-    --meta data/dataset/meta_grounded.parquet --lambda-json runs/lambda.json \
-    --adsb "data/adsb/adsb_*.parquet"
+    --meta data/dataset/meta_grounded.parquet --lambda-json runs/lambda.json
 ```
 
 One sidebar picks the case (a held-out window, filterable by clause and leg type), how its
@@ -247,8 +245,8 @@ models sample. Four pages then look at that case:
 
 The model traces replay each forward pass one operation at a time and check themselves
 against the model's own forward and sampler before display, so what is drawn is what the
-checkpoint computes. `--adsb` points at the raw day files the windows were cut from; without
-it the plan view falls back to nautical miles about the onset and the replay and dataset
+checkpoint computes. The raw ADS-B is read from `data/adsb/` (`fetch --adsb` installs it;
+`--adsb <glob>` points elsewhere). Without it the plan view falls back to nautical miles about the onset and the replay and dataset
 pages are unavailable. Basemap tiles (Esri) and the JavaScript libraries load from public
 CDNs, and the airport features are downloaded once into `data/cache/ourairports/`.
 
