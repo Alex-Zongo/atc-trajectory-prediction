@@ -30,15 +30,29 @@ with point error reported alongside as the cost.
 This repository is self-contained: it declares its own dependencies and needs nothing from
 any other checkout.
 
+Managed with [uv](https://docs.astral.sh/uv/). `uv.lock` pins all 135 transitive
+dependencies, so everyone gets the same versions:
+
 ```bash
-uv venv --python 3.12 .venv && uv pip install -e ".[all]"
-# or:  python -m venv .venv && .venv/bin/pip install -e ".[all]"
-.venv/bin/pytest                   # 10 tests, no data or network needed
+uv sync --all-extras               # creates .venv from the lock
+uv run pytest                      # 10 tests, no data or network needed
 ```
 
-Python 3.11+. Torch picks CUDA, Apple MPS or CPU automatically. The extras are
-`collect` (OpenSky), `asr` (transcription), `app` (viewer), `track` (wandb), `dev` (tests),
-and `all`.
+`uv run <cmd>` uses that environment without activating anything, so every command below
+can be prefixed with it. `uv sync` alone installs only the core dependencies; add
+`--extra app` and so on for a subset.
+
+Plain pip works too, but resolves fresh rather than from the lock:
+
+```bash
+python -m venv .venv && .venv/bin/pip install -e ".[all]"
+```
+
+Python 3.12 is pinned in `.python-version`; 3.11+ works. Torch picks CUDA, Apple MPS or
+CPU automatically. The extras are `collect` (OpenSky), `asr` (transcription), `app`
+(viewer), `track` (wandb), `dev` (tests), and `all`.
+
+After changing a dependency in `pyproject.toml`, run `uv lock` and commit the lockfile.
 
 ## Using pre-trained weights and a prepared dataset
 
