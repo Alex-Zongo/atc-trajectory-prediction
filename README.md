@@ -56,9 +56,22 @@ After changing a dependency in `pyproject.toml`, run `uv lock` and commit the lo
 
 ## Using pre-trained weights and a prepared dataset
 
-`runs/` and `data/` are gitignored, so a fresh clone has neither. Both are optional: the
-pipeline below builds them from scratch. To evaluate without rebuilding, drop artefacts at
-the paths the scripts would have written:
+`runs/` and `data/` are gitignored, so a fresh clone has neither. The trained weights and
+prepared data are published as assets of the repository's `data-v1` release, and one
+command installs them where every script expects them:
+
+```bash
+gh auth login                                  # once; needs access to this repository
+python scripts/artifacts.py fetch              # weights, windows, meta (~420 MB)
+python scripts/artifacts.py fetch --adsb       # also the raw ADS-B days (~760 MB)
+```
+
+Every asset is checked against `SHA256SUMS`. Without the GitHub CLI, download the assets
+from the release page into a folder and run `fetch --from <folder>`. The owner refreshes the
+release with `python scripts/artifacts.py publish` after retraining.
+
+Fetching is optional: the pipeline below builds everything from scratch. These are the
+paths it fills:
 
 ```
 runs/stage1.pt              Stage-1 clearance posterior
@@ -68,6 +81,7 @@ data/dataset/meta.parquet            maneuver segments, the Stage-1 training set
 data/dataset/meta_grounded.parquet   the same, with the onset state joined on
 data/windows_raw/windows.npz         Stage-2 windows
 data/windows_raw/windows_meta.parquet
+data/adsb/adsb_<day>.parquet         raw ADS-B, only needed to rebuild the dataset
 data/cache/aircraftDatabase.csv      optional; avoids re-downloading ~95 MB
 data/adsb/adsb_<day>.parquet         raw ADS-B the windows were cut from; the viewer reads it
                                      for the basemap, the flight replay and the dataset page
