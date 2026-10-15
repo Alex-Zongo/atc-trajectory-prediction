@@ -32,7 +32,10 @@ collect = ["pyopensky>=2.16"]
 # speech recognition for real audio
 asr = ["faster-whisper>=1.0", "srt>=3.5"]
 # interactive viewer
-app = ["streamlit>=1.30"]
+app = [
+    "plotly>=5.24",
+    "streamlit>=1.46",
+]
 # experiment tracking
 track = ["wandb>=0.17"]
 dev = ["pytest>=8.0", "pytest-cov", "ruff"]
@@ -50,6 +53,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "atc_forecast.channel" = ["profiles/*.json"]
+"atc_forecast.app" = ["web/*"]
 
 [tool.ruff]
 line-length = 100

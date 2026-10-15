@@ -1,0 +1,419 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/deck.gl@9.0.38/dist.min.js"></script>
+<style>
+/*__BASE_CSS__*/
+#app { display: grid; grid-template-columns: 1fr 312px; grid-template-rows: auto 1fr 132px; height: 100vh; gap: 0; }
+header { grid-column: 1 / 3; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+header .sp { flex: 1; }
+#stage { position: relative; overflow: hidden; background: var(--surface2); }
+#map { position: absolute; inset: 0; }
+#overlay { position: absolute; inset: 0; pointer-events: none; }
+#overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+#log { border-left: 1px solid var(--border); overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+footer { grid-column: 1 / 3; border-top: 1px solid var(--border); position: relative; }
+footer canvas { width: 100%; height: 100%; display: block; cursor: ew-resize; }
+
+.hud { position: absolute; left: 12px; top: 12px; padding: 10px 12px; border-radius: 12px; min-width: 230px;
+  background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(8px);
+  border: 1px solid var(--border); box-shadow: var(--shadow); pointer-events: auto; }
+.hud .cs { font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
+.hud .grid4 { display: grid; grid-template-columns: repeat(4, auto); gap: 2px 14px; margin-top: 8px; }
+.hud .k { font-size: 10px; color: var(--muted); letter-spacing: .06em; font-weight: 600; }
+.hud .v { font-family: var(--mono); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hud .clr { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 12px; }
+
+.legend { position: absolute; left: 12px; bottom: 12px; padding: 7px 10px; border-radius: 10px; display: flex; gap: 12px; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(6px); border: 1px solid var(--border); font-size: 11.5px; color: var(--text2); }
+.legend i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.attrib { position: absolute; right: 6px; bottom: 4px; font-size: 10px; color: var(--muted); background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 1px 5px; border-radius: 4px; }
+
+.bubble { position: absolute; width: 330px; padding: 10px 12px; border-radius: 12px; pointer-events: auto;
+  background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(8px);
+  border: 1px solid var(--border); box-shadow: var(--shadow); transition: opacity .3s, transform .3s; }
+.bubble.compact { width: auto; max-width: 260px; padding: 5px 9px; }
+.bubble .hd { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+.bubble .hd .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--crit); box-shadow: 0 0 0 0 var(--crit); animation: pulse 1.2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(208,59,59,.6); } 100% { box-shadow: 0 0 0 9px rgba(208,59,59,0); } }
+.bubble .tx { font-family: var(--mono); font-size: 12.5px; margin: 6px 0 4px; color: var(--text); min-height: 1.4em; }
+.bubble .tx .cur { display: inline-block; width: 7px; height: 13px; background: var(--text); vertical-align: -2px; animation: blink .8s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.confbar { height: 4px; border-radius: 2px; background: var(--surface3); overflow: hidden; margin: 2px 0 6px; }
+.confbar > div { height: 100%; background: var(--text2); }
+.dec { border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 4px; font-size: 12px; }
+.dec .row { display: grid; grid-template-columns: 1fr 64px 34px; align-items: center; gap: 6px; margin-top: 3px; }
+.dec .bar { height: 6px; border-radius: 3px; background: var(--belief); }
+.shimmer { background: linear-gradient(90deg, var(--muted) 0%, var(--text) 50%, var(--muted) 100%); background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent; animation: sh 1s linear infinite; }
+@keyframes sh { to { background-position: -200% 0; } }
+
+.ev { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; cursor: pointer; transition: border-color .2s, background .2s; }
+.ev:hover { background: var(--surface2); }
+.ev.active { border-color: var(--text2); background: var(--surface2); }
+.ev.future { opacity: .45; }
+.ev .t { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.ev .heard { font-family: var(--mono); font-size: 11.5px; margin: 3px 0; color: var(--text); }
+.ev .row { font-size: 11.5px; color: var(--text2); }
+.ev .row b { color: var(--text); font-weight: 600; }
+.ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text2); }
+.cond { cursor: pointer; user-select: none; }
+.cond.off { opacity: .4; text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <button class="btn primary" id="play">▶ Play</button>
+    <button class="btn" id="restart" title="Restart">↺</button>
+    <div class="seg" id="speed"></div>
+    <span class="ctl"><input type="checkbox" id="pause" checked> pause at clearances</span>
+    <span class="ctl"><input type="checkbox" id="follow" checked> follow</span>
+    <span class="ctl"><input type="checkbox" id="three" checked> 3-D</span>
+    <span class="ctl">alt ×<input type="range" id="exag" min="1" max="10" step="0.5" value="2.5" style="width:70px"><span id="exagv" class="mono">2.5</span></span>
+    <span class="ctl">map<input type="range" id="tiles" min="0" max="1" step="0.05" value="0.6" style="width:60px"></span>
+    <span class="sp"></span>
+    <span id="conds"></span>
+  </header>
+  <div id="stage">
+    <div id="map"></div>
+    <div id="overlay"><svg><line id="lead" stroke-width="1.2" stroke-dasharray="3 3"/></svg></div>
+    <div class="hud" id="hud"></div>
+    <div class="legend" id="legend"></div>
+    <div class="attrib">Esri, HERE, Garmin, © OpenStreetMap contributors · OurAirports</div>
+  </div>
+  <aside id="log"><div class="label">Radio log</div></aside>
+  <footer><canvas id="tl"></canvas></footer>
+</div>
+<script>/*__PAYLOAD__*/</script>
+<script>/*__BASE_JS__*/</script>
+<script>
+const T = P.track, EV = P.events, NT = T.t.length, FT2M = 0.3048;
+const COND_LABEL = { belief: "Belief", point: "Point (MAP)", oracle: "Oracle", none: "No instruction" };
+const state = { now: Math.max(0, (EV[0]?.t ?? 0) - 45), playing: false, speed: 8, exag: 2.5, tiles: 0.6,
+  follow: true, three: true, pauseAt: true, enabled: new Set(P.conditions), fired: new Set(),
+  bubble: null, reveal: {}, active: null, hold: false };
+
+// ----- track interpolation -------------------------------------------------------------
+function idxAt(t) { let lo = 0, hi = NT - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (T.t[m] <= t) lo = m; else hi = m; } return lo; }
+function sampleAt(t) {
+  t = Math.max(T.t[0], Math.min(T.t[NT - 1], t));
+  const i = idxAt(t), j = Math.min(i + 1, NT - 1), f = T.t[j] > T.t[i] ? (t - T.t[i]) / (T.t[j] - T.t[i]) : 0;
+  const L = k => T[k][i] + (T[k][j] - T[k][i]) * f;
+  let d = ((T.trk[j] - T.trk[i] + 540) % 360) - 180;
+  return { lon: L("lon"), lat: L("lat"), alt: L("alt"), gs: L("gs"), vr: L("vr"), trk: (T.trk[i] + d * f + 360) % 360, i };
+}
+const z = altFt => altFt * FT2M * state.exag;
+
+// ----- view ----------------------------------------------------------------------------
+const lons = T.lon, lats = T.lat;
+const bbox = [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]];
+const mapEl = $("#map");
+const fit = new deck.WebMercatorViewport({ width: mapEl.clientWidth || 800, height: mapEl.clientHeight || 500 })
+  .fitBounds(bbox, { padding: 60 });
+let viewState = { longitude: fit.longitude, latitude: fit.latitude, zoom: Math.max(Math.min(fit.zoom + 2, 12.5), 10.5), pitch: 50, bearing: -15, maxPitch: 75 };
+
+// ----- static layers -------------------------------------------------------------------
+const F = P.features;
+const ink = hexRgb(C.text2), muted = hexRgb(C.muted), truth = hexRgb(C.truth), accent = hexRgb(C.accent);
+const planeIcon = () => ({ url: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+  `<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'><path d='M32 3 L36 25 L59 36 L59 41 L36 34 L35 50 L43 56 L43 60 L32 57 L21 60 L21 56 L29 50 L28 34 L5 41 L5 36 L28 25 Z' fill='${C.truth}' stroke='${C.surface}' stroke-width='3' stroke-linejoin='round'/></svg>`),
+  width: 64, height: 64, anchorY: 32 });
+
+const bigAirports = F.airports.filter(d => d.kind !== "small");
+function staticLayers() {
+  return [
+    new deck.TileLayer({ id: "tiles", data: P.tile_url, minZoom: 0, maxZoom: 19, tileSize: 256, opacity: state.tiles,
+      renderSubLayers: p => { const { west, south, east, north } = p.tile.bbox;
+        return new deck.BitmapLayer(p, { data: null, image: p.data, bounds: [west, south, east, north] }); } }),
+    new deck.TileLayer({ id: "labels", data: P.label_url, minZoom: 0, maxZoom: 16, tileSize: 256, opacity: Math.min(1, state.tiles + .25),
+      renderSubLayers: p => { const { west, south, east, north } = p.tile.bbox;
+        return new deck.BitmapLayer(p, { data: null, image: p.data, bounds: [west, south, east, north] }); } }),
+    new deck.LineLayer({ id: "rwy", data: F.runways, getSourcePosition: d => d.a, getTargetPosition: d => d.b,
+      getColor: [...ink.slice(0, 3), 220], getWidth: 4, widthUnits: "pixels" }),
+    new deck.ScatterplotLayer({ id: "apt", data: F.airports, getPosition: d => [d.lon, d.lat], stroked: true, filled: true,
+      getFillColor: [...hexRgb(C.surface).slice(0, 3), 200], getLineColor: ink, lineWidthMinPixels: 1.5,
+      getRadius: d => d.kind === "small" ? 3 : 6, radiusUnits: "pixels", pickable: true }),
+    new deck.TextLayer({ id: "apt-l", data: bigAirports, getPosition: d => [d.lon, d.lat],
+      getText: d => d.iata || d.id, getSize: 12, getColor: ink, getPixelOffset: [0, -14], fontFamily: "Inter, sans-serif",
+      fontWeight: 600, outlineWidth: 3, outlineColor: [...hexRgb(C.surface).slice(0, 3), 230], fontSettings: { sdf: true } }),
+    new deck.ScatterplotLayer({ id: "nav", data: F.navaids, getPosition: d => [d.lon, d.lat], getFillColor: [...accent.slice(0, 3), 170],
+      getRadius: 4, radiusUnits: "pixels", pickable: true }),
+    new deck.TextLayer({ id: "nav-l", data: F.navaids, getPosition: d => [d.lon, d.lat], getText: d => d.id, getSize: 10,
+      getColor: [...accent.slice(0, 3), 230], getPixelOffset: [0, 11], fontFamily: "Inter, sans-serif", outlineWidth: 3,
+      outlineColor: [...hexRgb(C.surface).slice(0, 3), 230], fontSettings: { sdf: true } }),
+  ];
+}
+
+// the aircraft and its trail are drawn over the forecasts rather than depth-sorted among them
+const ON_TOP = { depthCompare: "always", depthWriteEnabled: false };
+const tripPath = T.lon.map((lo, i) => [lo, T.lat[i], 0]);
+const shadow = [{ path: tripPath, timestamps: T.t }];
+let tripCache = { exag: null, trip: null };
+function flightLayers(s) {
+  if (tripCache.exag !== state.exag)
+    tripCache = { exag: state.exag, trip: [{ path: tripPath.map((p, i) => [p[0], p[1], z(T.alt[i])]), timestamps: T.t }] };
+  const trip = tripCache.trip;
+  return [
+    new deck.TripsLayer({ id: "shadow", data: shadow, getPath: d => d.path, getTimestamps: d => d.timestamps,
+      getColor: [...muted.slice(0, 3), 110], widthMinPixels: 2, currentTime: state.now, trailLength: 1e6, fadeTrail: false,
+      updateTriggers: { getPath: state.exag } }),
+    new deck.TripsLayer({ id: "trail", data: trip, getPath: d => d.path, getTimestamps: d => d.timestamps,
+      getColor: truth, widthMinPixels: 3.5, currentTime: state.now, trailLength: 900, fadeTrail: true, jointRounded: true, capRounded: true,
+      parameters: ON_TOP, updateTriggers: { getPath: state.exag } }),
+    new deck.LineLayer({ id: "drop", data: [s], getSourcePosition: d => [d.lon, d.lat, z(d.alt)], getTargetPosition: d => [d.lon, d.lat, 0],
+      getColor: [...truth.slice(0, 3), 120], getWidth: 1.2, widthUnits: "pixels" }),
+    new deck.ScatterplotLayer({ id: "foot", data: [s], getPosition: d => [d.lon, d.lat, 0], getFillColor: [...truth.slice(0, 3), 90], getRadius: 5, radiusUnits: "pixels" }),
+    new deck.IconLayer({ id: "plane", data: [s], getPosition: d => [d.lon, d.lat, z(d.alt)], getIcon: planeIcon, getSize: 36,
+      getAngle: d => -(d.trk - viewState.bearing), billboard: true, parameters: ON_TOP, updateTriggers: { getAngle: [viewState.bearing] } }),
+  ];
+}
+
+// ----- forecasts -----------------------------------------------------------------------
+const H = P.H;
+function liveEvents() { return EV.filter(e => state.now >= e.t && state.now <= e.t + H + 6); }
+function fanLayers() {
+  const out = [];
+  for (const e of liveEvents()) {
+    const age = state.now - e.t, fade = age > H ? Math.max(0, 1 - (age - H) / 6) : 1;
+    const rev = state.reveal[e.t] ?? 1;
+    for (const cond of P.conditions) {
+      if (!state.enabled.has(cond)) continue;
+      const fc = e.forecast[cond], col = hexRgb(C[cond]), S = fc.paths[0].length, cut = Math.max(2, Math.ceil(rev * S));
+      const data = fc.paths.map((p, i) => ({ p: p.slice(0, cut), i, src: fc.src[i] }));
+      out.push(new deck.PathLayer({ id: `fan-${cond}-${e.t}`, data, getPath: d => d.p.map(q => [q[0], q[1], z(q[2])]),
+        getColor: [...col.slice(0, 3), Math.round(58 * fade)], getWidth: 1.4, widthUnits: "pixels", jointRounded: true, pickable: true,
+        updateTriggers: { getPath: [cut, state.exag], getColor: fade } }));
+      if (rev >= 1) {
+        const ends = fc.paths.map(p => p[p.length - 1]);
+        out.push(new deck.ScatterplotLayer({ id: `end-${cond}-${e.t}`, data: ends, getPosition: q => [q[0], q[1], z(q[2])],
+          getFillColor: [...col.slice(0, 3), Math.round(170 * fade)], getRadius: 2.6, radiusUnits: "pixels",
+          updateTriggers: { getPosition: state.exag, getFillColor: fade } }));
+      }
+    }
+  }
+  return out;
+}
+
+const dk = new deck.Deck({ parent: mapEl, viewState, controller: true,
+  onViewStateChange: ({ viewState: v }) => { viewState = v; dk.setProps({ viewState }); },
+  getTooltip: ({ object, layer }) => {
+    if (!object) return null;
+    if (layer.id === "apt" || layer.id === "nav") return { html: `<b>${object.id}</b> ${object.name}`, className: "tip show", style: { position: "absolute" } };
+    if (layer.id.startsWith("fan-")) { const e = state.active; const cond = layer.id.split("-")[1];
+      const txt = cond === "belief" && e ? e.sample_text[object.src] : (cond === "point" && e ? e.map : COND_LABEL[cond]);
+      return { html: `<b>${COND_LABEL[cond]}</b><br>${txt}`, className: "tip show", style: { position: "absolute" } }; }
+    return null; } });
+
+// ----- HUD, bubble, log ----------------------------------------------------------------
+const hud = $("#hud");
+function renderHud(s) {
+  const m = P.meta, cur = [...EV].reverse().find(e => e.t <= state.now);
+  hud.innerHTML = `<div style="display:flex;align-items:baseline;gap:8px"><span class="cs">${m.callsign}</span>
+    <span class="chip">${m.wake} · ${m.engine}</span><span class="chip">${m.leg_type}</span></div>
+    <div class="grid4"><span class="k">ALT</span><span class="k">GS</span><span class="k">HDG</span><span class="k">V/S</span>
+    <span class="v">${fmt.alt(s.alt)}</span><span class="v">${fmt.n(s.gs)} kt</span><span class="v">${fmt.hdg(s.trk)}</span>
+    <span class="v">${s.vr > 150 ? "↑" : s.vr < -150 ? "↓" : "→"}${fmt.n(Math.abs(s.vr))}</span></div>
+    <div class="clr"><span class="k">T+ ${fmt.t(state.now)} · clearances ${EV.filter(e => e.t <= state.now).length}/${EV.length}</span>
+    ${cur ? `<div style="margin-top:4px"><span class="muted">issued</span> <b>${cur.issued}</b><br><span class="muted">decoded</span> <b>${cur.map}</b></div>` : ""}</div>`;
+}
+
+const legend = $("#legend");
+function renderLegend() {
+  legend.innerHTML = `<span><i style="background:${C.truth}"></i>recorded flight</span>` +
+    P.conditions.filter(c => state.enabled.has(c)).map(c => `<span><i style="background:${C[c]}"></i>${COND_LABEL[c]} forecast</span>`).join("") +
+    `<span><i style="background:${C.text2};height:4px"></i>runway</span><span><i style="background:${C.accent};width:7px;height:7px;border-radius:50%"></i>navaid</span>`;
+}
+
+const log = $("#log");
+const evEls = EV.map((e, n) => {
+  const d = el("div", { class: "ev", onclick: () => seek(e.t - 10, true) },
+    el("div", { class: "t" }, `#${n + 1} · T+${fmt.t(e.t)} · conf ${e.conf.toFixed(2)}`),
+    el("div", { class: "heard" }, `“${e.text || "(nothing heard)"}”`),
+    el("div", { class: "row" }, "issued ", el("b", {}, e.issued)),
+    el("div", { class: "row" }, "Stage 1 ", el("b", {}, e.map)),
+    e.corrupted ? el("div", { class: "row muted" }, "channel: " + e.corrupted.replaceAll("|", ", ")) : null);
+  log.append(d); return d;
+});
+
+const bubble = el("div", { class: "bubble", style: "opacity:0" });
+$("#overlay").append(bubble);
+const lead = $("#lead"); lead.setAttribute("stroke", C.muted);
+
+async function typeText(node, text, ms) {
+  node.innerHTML = ""; const span = el("span"), cur = el("span", { class: "cur" }); node.append(span, cur);
+  const per = Math.max(8, Math.min(28, ms / Math.max(text.length, 1)));
+  for (let i = 0; i <= text.length; i++) { if (state.bubble?.cancel) return; span.textContent = text.slice(0, i); await sleep(per); }
+  cur.remove();
+}
+
+async function fire(e) {
+  const token = {}; state.bubble = token; state.active = e;
+  const wasPlaying = state.playing;
+  if (state.pauseAt) state.playing = false;
+  state.reveal[e.t] = 0;
+  bubble.classList.remove("compact");
+  bubble.innerHTML = `<div class="hd"><span class="dot"></span>ATC → ${P.meta.callsign}<span style="flex:1"></span>
+    <span>${P.meta.obs_mode === "clean" ? "clean transcript" : P.meta.obs_mode === "custom" ? "custom" : "ASR channel"}</span></div>
+    <div class="tx"></div><div class="confbar"><div style="width:${100 * e.conf}%"></div></div>
+    <div class="muted" style="font-size:11px">recognizer confidence ${e.conf.toFixed(2)}</div><div class="dec"></div>`;
+  bubble.style.opacity = 1;
+  await typeText($(".tx", bubble), e.text || "(nothing intelligible)", 1400);
+  if (state.bubble !== token) return;
+  const dec = $(".dec", bubble);
+  dec.innerHTML = `<span class="shimmer">Stage 1 · decoding the clearance posterior…</span>`;
+  await sleep(550);
+  if (state.bubble !== token) return;
+  dec.innerHTML = `<div style="display:flex;justify-content:space-between"><span class="label">Stage 1 posterior</span><span class="muted" style="font-size:11px">${P.k} draws</span></div>` +
+    e.modes.slice(0, 4).map(([t, p]) => `<div class="row"><span class="mono" style="font-size:11.5px">${t}</span>
+      <div class="confbar" style="margin:0"><div class="bar" style="width:${100 * p}%"></div></div><span class="mono muted">${fmt.pct(p)}</span></div>`).join("") +
+    `<div style="margin-top:5px"><span class="muted">MAP</span> <b style="color:${C.point}">●</b> <b>${e.map}</b> &nbsp;<span class="muted">issued</span> <b>${e.issued}</b></div>
+     <div style="margin-top:6px" class="shimmer">Stage 2 · integrating the flow…</div>`;
+  await sleep(350);
+  tween("reveal" + e.t, 1100, x => { state.reveal[e.t] = x; });
+  await sleep(1150);
+  if (state.bubble !== token) return;
+  const last = $(".dec .shimmer:last-child", bubble); if (last) last.outerHTML = `<div style="margin-top:6px" class="muted">Stage 2 · ${P.k * P.exec_k} trajectories per condition</div>`;
+  await sleep(700);
+  if (state.pauseAt && wasPlaying && state.bubble === token && !token.touched) state.playing = true;
+  await sleep(3500);
+  if (state.bubble === token) { bubble.classList.add("compact"); bubble.innerHTML = `<span class="mono" style="font-size:11.5px">${e.map}</span>`; }
+}
+
+function placeBubble(s) {
+  if (bubble.style.opacity === "0") return;
+  const vp = dk.getViewports()[0]; if (!vp) return;
+  const [x, y] = vp.project([s.lon, s.lat, z(s.alt)]);
+  const W = mapEl.clientWidth, bw = bubble.offsetWidth, bh = bubble.offsetHeight;
+  const Hm = mapEl.clientHeight;
+  let bx = x + 48, by = y - bh - 36;
+  if (bx + bw > W - 8) bx = x - bw - 48;
+  if (by < 8) by = y + 36;
+  bx = Math.max(8, Math.min(bx, W - bw - 8));
+  by = Math.max(8, Math.min(by, Hm - bh - 48));      // keep clear of the legend
+  bubble.style.left = bx + "px"; bubble.style.top = by + "px";
+  lead.setAttribute("x1", x); lead.setAttribute("y1", y);
+  lead.setAttribute("x2", bx < x ? bx + bw : bx); lead.setAttribute("y2", by + Math.min(bh, 24));
+}
+
+// ----- timeline: altitude and ground speed, with the active forecast's fans --------------
+const tl = $("#tl"), tctx = tl.getContext("2d");
+const tMax = T.t[NT - 1], altMax = Math.max(...T.alt) * 1.08, altMin = Math.min(0, Math.min(...T.alt));
+const gsMax = Math.max(...T.gs) * 1.15;
+function quant(arr, q) { const a = [...arr].sort((x, y) => x - y); return a[Math.min(a.length - 1, Math.floor(q * a.length))]; }
+function drawTimeline() {
+  const dpr = devicePixelRatio || 1, W = tl.clientWidth, Hh = tl.clientHeight;
+  if (tl.width !== W * dpr) { tl.width = W * dpr; tl.height = Hh * dpr; }
+  const c = tctx; c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, W, Hh);
+  const L = 46, R = 10, x = t => L + (W - L - R) * t / tMax;
+  const bands = [{ key: "alt", y0: 8, y1: 70, lo: altMin, hi: altMax, lab: "ALT ft" }, { key: "gs", y0: 80, y1: Hh - 18, lo: 0, hi: gsMax, lab: "GS kt" }];
+  c.font = "10.5px Inter, sans-serif";
+  for (const b of bands) {
+    const y = v => b.y1 - (b.y1 - b.y0) * (v - b.lo) / (b.hi - b.lo);
+    c.strokeStyle = C.grid; c.lineWidth = 1; c.beginPath(); c.moveTo(L, b.y1 + .5); c.lineTo(W - R, b.y1 + .5); c.stroke();
+    c.fillStyle = C.muted; c.fillText(b.lab, 4, b.y0 + 9);
+    c.fillText(fmt.n(b.hi * (b.key === "alt" ? 1 / 1.08 : 1 / 1.15)), 4, b.y0 + 21);
+    // live fans
+    for (const e of liveEvents()) for (const cond of P.conditions) {
+      if (!state.enabled.has(cond)) continue;
+      const fc = e.forecast[cond], S = fc.paths[0].length, steps = e.t_steps, lo = [], hi = [];
+      for (let s = 0; s < S; s++) {
+        const col = fc.paths.map((p, i) => b.key === "alt" ? p[s][2] : fc.gs[i][s]);
+        lo.push(quant(col, .1)); hi.push(quant(col, .9));
+      }
+      c.fillStyle = rgba(C[cond], .25); c.beginPath();
+      steps.forEach((st, s) => c.lineTo(x(e.t + st), y(hi[s]))); [...steps].reverse().forEach((st, s) => c.lineTo(x(e.t + st), y(lo[S - 1 - s])));
+      c.closePath(); c.fill();
+    }
+    // recorded profile, ink up to now and faint after
+    const i = idxAt(state.now);
+    c.lineWidth = 1.6;
+    c.strokeStyle = rgba(C.text2, .28); c.beginPath(); for (let k = i; k < NT; k++) c.lineTo(x(T.t[k]), y(T[b.key][k])); c.stroke();
+    c.strokeStyle = C.truth; c.beginPath(); for (let k = 0; k <= i; k++) c.lineTo(x(T.t[k]), y(T[b.key][k])); c.stroke();
+  }
+  for (const e of EV) {
+    const ex = x(e.t), past = e.t <= state.now;
+    c.strokeStyle = past ? C.accent : rgba(C.accent, .35); c.lineWidth = 1; c.beginPath(); c.moveTo(ex, 4); c.lineTo(ex, Hh - 16); c.stroke();
+    c.fillStyle = past ? C.accent : C.surface; c.strokeStyle = C.accent; c.beginPath(); c.arc(ex, 5, 3.2, 0, 7); c.fill(); c.stroke();
+  }
+  c.fillStyle = C.muted;
+  for (let t = 0; t <= tMax; t += tMax > 3000 ? 600 : tMax > 900 ? 300 : 60) c.fillText(fmt.t(t), x(t) - 8, Hh - 4);
+  const px = x(state.now); c.strokeStyle = C.text; c.lineWidth = 2; c.beginPath(); c.moveTo(px, 2); c.lineTo(px, Hh - 14); c.stroke();
+  tl._x = x; tl._L = L; tl._R = R;
+}
+let dragging = false;
+const tAtPx = ev => { const r = tl.getBoundingClientRect(); return Math.max(0, Math.min(tMax, (ev.clientX - r.left - tl._L) / (r.width - tl._L - tl._R) * tMax)); };
+tl.addEventListener("pointerdown", ev => { dragging = true; tl.setPointerCapture(ev.pointerId); seek(tAtPx(ev), false); });
+tl.addEventListener("pointermove", ev => {
+  if (dragging) return seek(tAtPx(ev), false);
+  const t = tAtPx(ev), e = EV.find(e => Math.abs(tl._x(e.t) - tl._x(t)) < 5);
+  if (e) tip.show(`<b>T+${fmt.t(e.t)}</b><br><span class="mono">${e.text}</span><br>issued <b>${e.issued}</b>`, ev); else tip.hide();
+});
+tl.addEventListener("pointerup", () => dragging = false);
+tl.addEventListener("pointerleave", () => tip.hide());
+
+function seek(t, play) {
+  state.now = t; state.bubble = null; bubble.style.opacity = 0;
+  for (const e of EV) { if (e.t > t) { state.fired.delete(e.t); delete state.reveal[e.t]; } else { state.fired.add(e.t); state.reveal[e.t] = 1; } }
+  state.active = [...EV].reverse().find(e => e.t <= t) || null;
+  if (play) state.playing = true;
+  syncPlay();
+}
+
+// ----- controls ------------------------------------------------------------------------
+const playBtn = $("#play");
+function syncPlay() { playBtn.textContent = state.playing ? "❚❚ Pause" : "▶ Play"; }
+playBtn.onclick = () => { state.playing = !state.playing; if (state.bubble) state.bubble.touched = true; syncPlay(); };
+$("#restart").onclick = () => { seek(Math.max(0, (EV[0]?.t ?? 0) - 45), true); };
+const sp = $("#speed");
+[1, 4, 8, 16, 64].forEach(v => sp.append(el("button", { class: v === state.speed ? "on" : "", onclick: ev => {
+  state.speed = v; [...sp.children].forEach(b => b.classList.toggle("on", b === ev.target)); } }, v + "×")));
+$("#pause").onchange = ev => state.pauseAt = ev.target.checked;
+$("#follow").onchange = ev => state.follow = ev.target.checked;
+$("#three").onchange = ev => { state.three = ev.target.checked;
+  const p0 = viewState.pitch, p1 = state.three ? 50 : 0;
+  tween("pitch", 600, x => { viewState = { ...viewState, pitch: p0 + (p1 - p0) * x }; dk.setProps({ viewState }); }); };
+$("#exag").oninput = ev => { state.exag = +ev.target.value; $("#exagv").textContent = state.exag; };
+$("#tiles").oninput = ev => { state.tiles = +ev.target.value; };
+const condsEl = $("#conds");
+P.conditions.forEach(c => condsEl.append(el("span", { class: "chip cond", style: "margin-left:6px", onclick: ev => {
+  state.enabled.has(c) ? state.enabled.delete(c) : state.enabled.add(c); ev.currentTarget.classList.toggle("off"); renderLegend(); } },
+  el("span", { class: "sw", style: `background:${C[c]}` }), COND_LABEL[c])));
+addEventListener("keydown", ev => { if (ev.code === "Space") { ev.preventDefault(); playBtn.click(); } });
+
+// ----- main loop -----------------------------------------------------------------------
+let last = performance.now(), lastHud = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (state.playing) {
+    const prev = state.now;
+    state.now = Math.min(T.t[NT - 1], state.now + dt * state.speed);
+    for (const e of EV) if (!state.fired.has(e.t) && prev < e.t && state.now >= e.t) {
+      state.fired.add(e.t); state.now = e.t; fire(e); break;
+    }
+    if (state.now >= T.t[NT - 1]) { state.playing = false; syncPlay(); }
+  }
+  const s = sampleAt(state.now);
+  if (state.follow) {
+    // aim at the aircraft itself, not the ground below it, so it stays centred at any exaggeration
+    viewState = { ...viewState, longitude: s.lon, latitude: s.lat, position: [0, 0, z(s.alt)] };
+    dk.setProps({ viewState });
+  }
+  dk.setProps({ layers: [...staticLayers(), ...fanLayers(), ...flightLayers(s)] });
+  placeBubble(s); drawTimeline();
+  if (now - lastHud > 100) {
+    lastHud = now; renderHud(s); syncPlay();
+    evEls.forEach((d, n) => { d.classList.toggle("active", EV[n] === state.active); d.classList.toggle("future", EV[n].t > state.now); });
+  }
+  requestAnimationFrame(frame);
+}
+renderLegend();
+if (!EV.length) { $("#log").append(el("div", { class: "muted" }, "No clearances in this leg.")); }
+requestAnimationFrame(frame);
+setTimeout(() => { state.playing = true; syncPlay(); }, 600);
+</script>
+</body>
+</html>

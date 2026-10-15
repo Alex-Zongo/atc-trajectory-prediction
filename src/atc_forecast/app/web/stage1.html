@@ -1,0 +1,508 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<style>
+/*__BASE_CSS__*/
+body { padding: 4px 2px; }
+.top { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
+.top .sp { flex: 1; }
+#pipe { width: 100%; height: 178px; display: block; }
+.node rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.2; transition: fill .25s, stroke .25s; }
+.node:hover rect { stroke: var(--text2); }
+.node.sel rect { stroke: var(--text); stroke-width: 2; fill: var(--surface2); }
+.node.lit rect { fill: color-mix(in srgb, var(--belief) 14%, var(--surface)); stroke: var(--belief); }
+.node .t1 { font-size: 11.5px; font-weight: 650; fill: var(--text); }
+.node .t2 { font-size: 9.5px; fill: var(--muted); font-family: var(--mono); }
+.edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.edge.side { stroke-dasharray: 4 3; }
+.packet { fill: var(--belief); }
+#detail { border: 1px solid var(--border); border-radius: 12px; padding: 14px; min-height: 720px; }
+.dh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+.dh .shape { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.lede { color: var(--text2); max-width: 980px; margin: 2px 0 12px; }
+.toks { display: flex; flex-wrap: wrap; gap: 5px; }
+.tok { font-family: var(--mono); font-size: 12px; padding: 3px 7px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); cursor: default; transition: background .15s, border-color .15s; }
+.tok .id { font-size: 9.5px; color: var(--muted); margin-left: 4px; }
+.tok.conf { border-style: dashed; color: var(--accent); }
+.tok.unk { border-color: var(--crit); color: var(--crit); }
+.tok.hi { background: var(--surface3); border-color: var(--text2); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ctrls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
+canvas.hm { image-rendering: pixelated; border-radius: 4px; display: block; }
+.chain { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 6px 2px 10px; }
+.chain > div { flex: 1 1 0; min-width: 0; } .chain > div:first-child { flex: .3 1 0; }
+.cell { flex: 1 1 0; min-width: 84px; border: 1px solid var(--border); border-radius: 10px; padding: 7px 7px 6px; cursor: pointer; background: var(--surface);
+  transition: transform .2s, border-color .2s, box-shadow .2s, opacity .3s; position: relative; }
+.cell:hover { border-color: var(--text2); }
+.cell.sel { border-color: var(--text); box-shadow: var(--shadow); }
+.cell.gated { opacity: .38; }
+.cell.hidden { opacity: .15; }
+.cell.flash { transform: translateY(-3px); box-shadow: 0 0 0 3px color-mix(in srgb, var(--belief) 35%, transparent); }
+.cell .nm { font-size: 11px; font-weight: 650; }
+.cell .val { font-family: var(--mono); font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+.cell .badge { position: absolute; right: 5px; top: 5px; font-size: 9.5px; padding: 0 5px; border-radius: 4px; background: var(--surface3); color: var(--accent); font-weight: 700; }
+.arrow { width: 14px; min-width: 14px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; }
+.grp { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.legend-inline { display: inline-flex; gap: 12px; font-size: 11.5px; color: var(--text2); }
+.legend-inline i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; }
+.kv .k { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="top">
+  <button class="btn primary" id="play">▶ Run forward pass</button>
+  <span class="muted" id="status">Click any block to look inside it.</span>
+  <span class="sp"></span>
+  <span class="chip mono" id="inputchip"></span>
+</div>
+<svg id="pipe"></svg>
+<div id="detail"></div>
+<script>/*__PAYLOAD__*/</script>
+<script>/*__BASE_JS__*/</script>
+<script>
+const S = P.trace, D = S.dims, Lp = S.tokens.length;
+const N = id => ({ text: "Transcript", tok: "Tokenizer", emb: "Embedding", enc1: "Encoder L1", enc2: "Encoder L2",
+  slots: "Slot pool", ctx: "Context → h₀", gru: "AR decoder", out: "Joint samples" })[id];
+const NODES = [
+  { id: "text", x: 0, sub: `${S.text.length} chars` },
+  { id: "tok", x: 1, sub: `${Lp - 1} tok · V ${D.vocab}` },
+  { id: "emb", x: 2, sub: `[${Lp} × ${D.hidden}]` },
+  { id: "enc1", x: 3, sub: `${D.heads}h · FFN ${D.ffn}` },
+  { id: "enc2", x: 4, sub: `${D.heads}h · FFN ${D.ffn}` },
+  { id: "slots", x: 5, sub: `${D.slots} × ${D.hidden}` },
+  { id: "ctx", x: 6, sub: `${D.slots * D.hidden}→${D.hidden}` },
+  { id: "gru", x: 7, sub: `GRU · 10 fields` },
+  { id: "out", x: 8, sub: `k = ${S.k} draws` },
+];
+const SIDE = [{ id: "conf", label: "confidence κ", sub: S.confidence.toFixed(2), to: "emb" },
+              { id: "state", label: "aircraft state s", sub: S.state ? `[${D.state_dim}]` : "none", to: "gru" }];
+
+$("#inputchip").textContent = `κ = ${S.confidence.toFixed(2)} · T = ${S.temperature.toFixed(2)}`;
+let selected = "tok";
+
+// ---------------------------------------------------------------------- pipeline diagram
+const svg = d3.select("#pipe"), W = document.body.clientWidth - 6, nw = Math.min(124, (W - 20) / 9 - 14), gap = (W - 9 * nw) / 8.6;
+svg.attr("viewBox", `0 0 ${W} 178`);
+const nx = i => 4 + i * (nw + gap), ny = 70, nh = 50;
+const defs = svg.append("defs");
+defs.append("marker").attr("id", "ar").attr("viewBox", "0 0 10 10").attr("refX", 9).attr("refY", 5).attr("markerWidth", 6).attr("markerHeight", 6)
+  .attr("orient", "auto").append("path").attr("d", "M0,0 L10,5 L0,10 z").attr("fill", C.muted);
+const edges = [];
+for (let i = 0; i < 8; i++) edges.push({ a: [nx(i) + nw, ny + nh / 2], b: [nx(i + 1), ny + nh / 2], to: NODES[i + 1].id });
+const sideXY = { conf: [nx(2) + nw / 2, 18], state: [nx(7) + nw / 2, 18] };
+const gE = svg.append("g");
+gE.selectAll("path.main").data(edges).join("path").attr("class", "edge").attr("marker-end", "url(#ar)")
+  .attr("d", e => `M${e.a[0]},${e.a[1]} L${e.b[0] - 2},${e.b[1]}`).attr("id", (e, i) => "e" + i);
+SIDE.forEach(s => {
+  const [x, y] = sideXY[s.id];
+  gE.append("path").attr("class", "edge side").attr("marker-end", "url(#ar)").attr("d", `M${x},${y + 22} L${x},${ny - 2}`);
+  const g = svg.append("g").attr("transform", `translate(${x - 62},${y - 8})`);
+  g.append("rect").attr("width", 124).attr("height", 30).attr("rx", 8).attr("fill", C.surface2).attr("stroke", C.border).attr("stroke-dasharray", "4 3");
+  g.append("text").attr("x", 62).attr("y", 13).attr("text-anchor", "middle").attr("font-size", 11).attr("font-weight", 600).attr("fill", C.accent).text(s.label);
+  g.append("text").attr("x", 62).attr("y", 25).attr("text-anchor", "middle").attr("font-size", 10).attr("class", "mono").attr("fill", C.muted).text(s.sub);
+});
+svg.append("text").attr("x", nx(7) + nw / 2 + 6).attr("y", 58).attr("font-size", 10).attr("fill", C.accent)
+  .text(S.state ? `FiLM → ${S.ground_fields.join(", ")} heads` : "");
+svg.append("text").attr("x", nx(2) + nw / 2 + 6).attr("y", 58).attr("font-size", 10).attr("fill", C.accent).text("prepended as a token");
+const gN = svg.selectAll("g.node").data(NODES).join("g").attr("class", "node").attr("transform", d => `translate(${nx(d.x)},${ny})`)
+  .style("cursor", "pointer").on("click", (_, d) => select(d.id));
+gN.append("rect").attr("width", nw).attr("height", nh).attr("rx", 10);
+gN.append("text").attr("class", "t1").attr("x", nw / 2).attr("y", 21).attr("text-anchor", "middle").text(d => N(d.id));
+gN.append("text").attr("class", "t2").attr("x", nw / 2).attr("y", 37).attr("text-anchor", "middle").text(d => d.sub);
+svg.append("text").attr("x", nx(3)).attr("y", 140).attr("font-size", 10.5).attr("fill", C.muted)
+  .text("pre-LN Transformer · h ← h + MHSA(LN h) ; h ← h + FFN(LN h)");
+svg.append("text").attr("x", nx(7)).attr("y", 140).attr("font-size", 10.5).attr("fill", C.muted)
+  .text("field i reads every field < i");
+const packet = svg.append("circle").attr("class", "packet").attr("r", 5).attr("opacity", 0);
+function syncSel() { gN.classed("sel", d => d.id === selected); }
+
+// ---------------------------------------------------------------------- shared drawing helpers
+function heat(canvas, rows, opts = {}) {
+  const R = rows.length, Cc = rows[0].length, cw = opts.cw || 3, ch = opts.ch || 14;
+  canvas.width = Cc * cw; canvas.height = R * ch; canvas.style.width = Cc * cw + "px"; canvas.style.height = R * ch + "px";
+  const ctx = canvas.getContext("2d"), m = opts.max || Math.max(1e-6, ...rows.map(r => Math.max(...r.map(Math.abs))));
+  for (let i = 0; i < R; i++) for (let j = 0; j < Cc; j++) {
+    ctx.fillStyle = opts.seq ? seqColor(rows[i][j] / m) : divColor(rows[i][j] / m);
+    ctx.fillRect(j * cw, i * ch, cw, ch - (opts.gap ?? 1));
+  }
+  canvas.onmousemove = ev => { const r = canvas.getBoundingClientRect(), j = Math.floor((ev.clientX - r.left) / cw), i = Math.floor((ev.clientY - r.top) / ch);
+    if (i >= 0 && i < R && j >= 0 && j < Cc) tip.show(opts.label ? opts.label(i, j, rows[i][j]) : `row ${i} · dim ${j}<br><b>${rows[i][j].toFixed(3)}</b>`, ev); };
+  canvas.onmouseleave = () => tip.hide();
+}
+const matrix = q => { const d = deq(q); return d.shape.length === 1 ? [Array.from(d.data)] : d.slice2().map(r => Array.from(r)); };
+function tokenChips(container, opts = {}) {
+  const box = el("div", { class: "toks" });
+  S.tokens.forEach((t, i) => box.append(el("span", { class: "tok" + (i === 0 ? " conf" : "") + (S.unk[i] ? " unk" : ""), "data-i": i,
+    onmouseenter: ev => opts.hover && opts.hover(i, ev), onmouseleave: () => opts.leave && opts.leave() },
+    t, i > 0 ? el("span", { class: "id" }, S.unk[i] ? "UNK" : S.ids[i]) : el("span", { class: "id" }, "κ"))));
+  container.append(box); return box;
+}
+const head = (title, shape, lede) => [el("div", { class: "dh" }, el("h3", {}, title), el("span", { class: "shape" }, shape)), el("p", { class: "lede" }, lede)];
+
+// ---------------------------------------------------------------------- per-node panels
+const panels = {};
+panels.text = d => {
+  d.append(...head("Transcript u and confidence κ", "string, scalar",
+    "What the recognizer heard, exactly as Stage 1 receives it, together with its confidence. Callsigns and surrounding phraseology are deliberately left in: the model has to learn to read past them to the clearance."));
+  d.append(el("div", { class: "mono", style: "font-size:16px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)" }, S.text || "(empty)"));
+  d.append(el("div", { class: "kv", style: "margin-top:12px" }, el("span", { class: "k" }, "confidence κ"), el("span", { class: "mono" }, S.confidence.toFixed(3)),
+    el("span", { class: "k" }, "sampling temperature"), el("span", { class: "mono" }, S.temperature.toFixed(3) + "  (fitted post hoc on the energy score)"),
+    el("span", { class: "k" }, "state s"), el("span", { class: "mono" }, S.state ? `[alt, vrate, gs, sin ψ, cos ψ] = [${S.state.map(v => v.toFixed(3)).join(", ")}] (normalised)` : "not used")));
+};
+panels.tok = d => {
+  d.append(...head("Tokenizer", `${Lp - 1} tokens → ids in a ${D.vocab}-word vocabulary, max ${S.max_len}`,
+    "Whitespace and comma split, with every number broken into single digits so that “270” and “two seven zero” share the same digit tokens. Words outside the vocabulary become UNK. A confidence slot κ is prepended, so that every later layer can see how sure the recognizer was."));
+  tokenChips(d);
+  if (S.truncated) d.append(el("p", { class: "muted" }, `The transcript was longer than ${S.max_len} tokens and was truncated.`));
+  const unk = S.unk.filter(Boolean).length;
+  d.append(el("p", { class: "muted", style: "margin-top:10px" }, unk ? `${unk} token(s) are outside the vocabulary and carry no meaning beyond “unknown word”.` : "Every token is in the vocabulary."));
+};
+panels.emb = d => {
+  d.append(...head("Embedding", `[${Lp} × ${D.hidden}]`,
+    "Each token id looks up a learned 256-dimensional vector, and a learned position vector is added. The confidence slot is a linear projection of κ. Rows are tokens and columns are dimensions; the colour is the signed value."));
+  const ctr = el("div", { class: "ctrls" }), seg = el("div", { class: "seg" });
+  const cv = el("canvas", { class: "hm" }), lab = el("div", { style: "display:grid;grid-template-columns:120px auto;gap:8px;align-items:start" });
+  const names = el("div", {}, ...S.tokens.map(t => el("div", { class: "mono", style: "height:14px;font-size:11px;line-height:13px;text-align:right;white-space:nowrap;overflow:hidden" }, t)));
+  lab.append(names, cv);
+  const show = which => {
+    [...seg.children].forEach(b => b.classList.toggle("on", b.dataset.w === which));
+    const rows = which === "tok" ? [Array.from(deq(S.embed.conf).data), ...matrix(S.embed.tok)] : matrix(S.embed.sum);
+    heat(cv, rows, { cw: 3, label: (i, j, v) => `<b>${S.tokens[i]}</b> · dim ${j}<br>${v.toFixed(3)}` });
+  };
+  [["tok", "token (and κ) vectors"], ["sum", "+ position = layer-1 input"]].forEach(([w, t]) => seg.append(el("button", { "data-w": w, onclick: () => show(w) }, t)));
+  ctr.append(seg); d.append(ctr, lab); show("sum");
+};
+function encPanel(li) {
+  return d => {
+    const Ld = S.layers[li], A = deq(Ld.attn);              // [heads, n, n]
+    d.append(...head(`Encoder layer ${li + 1}`, `${D.heads} heads · d_head ${D.hidden / D.heads} · FFN ${D.hidden}→${D.ffn}→${D.hidden}`,
+      "Every token builds its next representation by attending over all the others. Each head learns its own notion of relevance, so for one token one head may follow the digits while another follows the verb. Hover a token on the left to see where it looks."));
+    const ctr = el("div", { class: "ctrls" }), seg = el("div", { class: "seg" }), vseg = el("div", { class: "seg" });
+    let h = -1, view = "arcs";
+    ["avg", ...Array.from({ length: D.heads }, (_, i) => i)].forEach(v => seg.append(el("button", { onclick: () => { h = v === "avg" ? -1 : v; draw(); } }, v === "avg" ? "all heads" : `head ${v + 1}`)));
+    ["arcs", "matrix"].forEach(v => vseg.append(el("button", { onclick: () => { view = v; draw(); } }, v)));
+    ctr.append(el("span", { class: "label" }, "head"), seg, el("span", { class: "label" }, "view"), vseg);
+    const body = el("div", { class: "row2" }), left = el("div"), right = el("div");
+    body.append(left, right); d.append(ctr, body);
+    const att = (q, k) => h < 0 ? Array.from({ length: D.heads }, (_, i) => A.at(i, q, k)).reduce((a, b) => a + b) / D.heads : A.at(h, q, k);
+    let focus = null;
+    function draw() {
+      [...seg.children].forEach((b, i) => b.classList.toggle("on", i === h + 1));
+      [...vseg.children].forEach(b => b.classList.toggle("on", b.textContent === view));
+      left.innerHTML = "";
+      const rh = 19, Hh = Lp * rh + 10, Ww = left.clientWidth || 470;
+      const s = d3.select(left).append("svg").attr("width", Ww).attr("height", view === "arcs" ? Hh : Lp * 16 + 90);
+      if (view === "arcs") {
+        const xl = 150, xr = Ww - 150, yy = i => 12 + i * rh;
+        const g = s.append("g");
+        const lines = () => {
+          g.selectAll("path").remove();
+          const qs = focus == null ? d3.range(Lp) : [focus];
+          for (const q of qs) for (let k = 0; k < Lp; k++) {
+            const a = att(q, k); if (a < .02) continue;
+            g.append("path").attr("d", `M${xl},${yy(q)} C${(xl + xr) / 2},${yy(q)} ${(xl + xr) / 2},${yy(k)} ${xr},${yy(k)}`)
+              .attr("fill", "none").attr("stroke", C.belief).attr("stroke-width", 1 + 5 * a).attr("stroke-opacity", focus == null ? a * .6 : .15 + .85 * a);
+          }
+        };
+        const lab = (x, anchor, side) => s.selectAll("text." + side).data(S.tokens).join("text").attr("class", side + " mono")
+          .attr("x", x).attr("y", (t, i) => yy(i) + 4).attr("text-anchor", anchor).attr("font-size", 11.5).text(t => t)
+          .attr("fill", (t, i) => i === focus ? C.text : C.text2).attr("font-weight", (t, i) => i === focus ? 700 : 400);
+        lab(xl - 8, "end", "q"); lab(xr + 8, "start", "k");
+        s.selectAll("rect.hit").data(S.tokens).join("rect").attr("class", "hit").attr("x", 0).attr("width", xl).attr("y", (t, i) => yy(i) - 9).attr("height", rh)
+          .attr("fill", "transparent").style("cursor", "pointer")
+          .on("mouseenter", (ev, t) => { focus = S.tokens.indexOf(t); lab(xl - 8, "end", "q"); lines(); })
+          .on("mouseleave", () => { focus = null; lab(xl - 8, "end", "q"); lines(); });
+        s.append("text").attr("x", xl - 8).attr("y", Hh).attr("text-anchor", "end").attr("font-size", 10).attr("fill", C.muted).text("query (attends from)");
+        s.append("text").attr("x", xr + 8).attr("y", Hh).attr("font-size", 10).attr("fill", C.muted).text("key (attends to)");
+        lines();
+      } else {
+        const cs = 16, ox = 110, oy = 80;
+        for (let q = 0; q < Lp; q++) for (let k = 0; k < Lp; k++)
+          s.append("rect").attr("x", ox + k * cs).attr("y", oy + q * cs).attr("width", cs - 1).attr("height", cs - 1).attr("rx", 2)
+            .attr("fill", seqColor(att(q, k))).on("mousemove", ev => tip.show(`<b>${S.tokens[q]}</b> → <b>${S.tokens[k]}</b><br>${att(q, k).toFixed(3)}`, ev)).on("mouseleave", () => tip.hide());
+        S.tokens.forEach((t, i) => {
+          s.append("text").attr("x", ox - 6).attr("y", oy + i * cs + 12).attr("text-anchor", "end").attr("font-size", 10.5).attr("class", "mono").text(t);
+          s.append("text").attr("transform", `translate(${ox + i * cs + 11},${oy - 6}) rotate(-55)`).attr("font-size", 10.5).attr("class", "mono").text(t);
+        });
+      }
+      right.innerHTML = "";
+      right.append(el("div", { class: "label" }, "residual updates per token"),
+        el("p", { class: "muted", style: "margin:2px 0 8px" }, "How much the attention and feed-forward sublayers each change a token's vector, as a norm. A token that the layer leaves alone is already where it needs to be."));
+      const r = d3.select(right).append("svg").attr("width", right.clientWidth || 460).attr("height", Lp * 18 + 30);
+      const mx = Math.max(...Ld.attn_norm, ...Ld.ffn_norm), sx = d3.scaleLinear([0, mx], [0, (right.clientWidth || 460) - 240]);
+      S.tokens.forEach((t, i) => {
+        const y = 10 + i * 18;
+        r.append("text").attr("x", 110).attr("y", y + 9).attr("text-anchor", "end").attr("font-size", 11).attr("class", "mono").text(t);
+        r.append("rect").attr("x", 118).attr("y", y).attr("height", 6).attr("rx", 3).attr("width", sx(Ld.attn_norm[i])).attr("fill", C.belief);
+        r.append("rect").attr("x", 118).attr("y", y + 7).attr("height", 6).attr("rx", 3).attr("width", sx(Ld.ffn_norm[i])).attr("fill", C.accent);
+      });
+      right.append(el("div", { class: "legend-inline" }, el("span", {}, el("i", { style: `background:${C.belief}` }), "‖MHSA update‖"),
+        el("span", {}, el("i", { style: `background:${C.accent}` }), "‖FFN update‖")));
+    }
+    requestAnimationFrame(draw);
+  };
+}
+panels.enc1 = encPanel(0);
+panels.enc2 = encPanel(1);
+panels.slots = d => {
+  const A = deq(S.slots.attn);                           // [heads, slots, n]
+  d.append(...head("Slot attention pool", `${D.slots} learned queries × ${D.heads} heads → [${D.slots} × ${D.hidden}]`,
+    "Rather than squeezing the whole transcript into one vector, which destroys digit order, six learned queries each cross-attend over the token states and pull out what they specialise in. Each row below is one slot, showing how its attention is spread over the tokens."));
+  const ctr = el("div", { class: "ctrls" }), seg = el("div", { class: "seg" });
+  let h = -1;
+  ["avg", ...d3.range(D.heads)].forEach(v => seg.append(el("button", { onclick: () => { h = v === "avg" ? -1 : v; draw(); } }, v === "avg" ? "all heads" : `head ${v + 1}`)));
+  ctr.append(el("span", { class: "label" }, "head"), seg);
+  const box = el("div"); d.append(ctr, box);
+  const att = (s, k) => h < 0 ? d3.mean(d3.range(D.heads), i => A.at(i, s, k)) : A.at(h, s, k);
+  function draw() {
+    [...seg.children].forEach((b, i) => b.classList.toggle("on", i === h + 1));
+    box.innerHTML = "";
+    const cs = Math.max(22, Math.min(46, ((box.clientWidth || 900) - 90) / Lp)), s = d3.select(box).append("svg").attr("width", 90 + Lp * cs).attr("height", 90 + D.slots * 30);
+    for (let sl = 0; sl < D.slots; sl++) {
+      s.append("text").attr("x", 80).attr("y", 84 + sl * 30 + 17).attr("text-anchor", "end").attr("font-size", 11.5).attr("font-weight", 600).text(`slot ${sl + 1}`);
+      for (let k = 0; k < Lp; k++) {
+        const a = att(sl, k);
+        s.append("rect").attr("x", 90 + k * cs).attr("y", 84 + sl * 30).attr("width", cs - 2).attr("height", 26).attr("rx", 4).attr("fill", seqColor(a * 1.4))
+          .on("mousemove", ev => tip.show(`slot ${sl + 1} reads <b>${S.tokens[k]}</b><br>${a.toFixed(3)}`, ev)).on("mouseleave", () => tip.hide());
+      }
+    }
+    S.tokens.forEach((t, i) => s.append("text").attr("transform", `translate(${90 + i * cs + cs / 2},78) rotate(-50)`).attr("font-size", 11).attr("class", "mono").text(t));
+  }
+  requestAnimationFrame(draw);
+};
+panels.ctx = d => {
+  d.append(...head("Context and initial state", `[${D.slots} × ${D.hidden}] → flatten ${D.slots * D.hidden} → Linear·GELU·LN → ${D.hidden} → h₀`,
+    "The six slot vectors are concatenated and projected to one 256-d context, which a linear map turns into the decoder's initial recurrent state h₀. Everything the decoder knows about the transcript passes through this one vector."));
+  const g = el("div", { style: "display:grid;grid-template-columns:110px auto;gap:6px 10px;align-items:center" });
+  const add = (name, rows, opts) => { const cv = el("canvas", { class: "hm" }); g.append(el("div", { class: "mono", style: "font-size:11px;text-align:right" }, name), cv); heat(cv, rows, opts); };
+  matrix(S.slots.out).forEach((r, i) => add(`slot ${i + 1}`, [r], { cw: 3, ch: 14 }));
+  add("context", [Array.from(deq(S.ctx).data)], { cw: 3, ch: 18 });
+  add("h₀", [Array.from(deq(S.h0).data)], { cw: 3, ch: 18 });
+  d.append(g);
+};
+
+// ---------------------------------------------------------------------- the decoder
+const GROUPS = [["clearance", [0]], ["lateral", [1, 2, 3]], ["vertical", [4, 5, 6]], ["speed", [7, 8, 9]]];
+let path = "greedy", draw_j = 0, cellSel = 3, showUngrounded = false, revealUpTo = 10;
+function stepOf(i) { return path === "greedy" ? S.greedy[i] : S.samples[i]; }
+const rowOf = () => path === "greedy" ? 0 : draw_j;
+function valText(i) {
+  const st = stepOf(i), v = st.value[rowOf()], f = S.fields[i];
+  if (f.type === "bern") {
+    const lab = { is_clearance: ["no", "yes"], pres_lat: ["absent", "present"], dir_lat: ["left", "right"], pres_vert: ["absent", "present"],
+      dir_vert: ["descend", "climb"], pres_spd: ["absent", "present"], dir_spd: ["reduce", "increase"] }[f.name];
+    return lab[v > .5 ? 1 : 0];
+  }
+  if (f.name === "hdg") return fmt.hdg(v);
+  if (f.name === "alt") return fmt.alt(v);
+  return fmt.n(v) + " kt";
+}
+const active = i => { const st = stepOf(i); return st.active == null || st.active[rowOf()] > .5; };
+function miniDist(svgSel, i, w, h) {
+  const st = stepOf(i), f = S.fields[i], r = rowOf(), d = st.dist, s = svgSel;
+  if (f.type === "bern") {
+    const p = d.p[r];
+    s.append("rect").attr("x", 0).attr("y", h - 4).attr("width", w).attr("height", 4).attr("rx", 2).attr("fill", C.border);
+    s.append("rect").attr("x", 0).attr("y", h - 4).attr("width", w * p).attr("height", 4).attr("rx", 2).attr("fill", C.belief);
+    s.append("text").attr("x", 0).attr("y", h - 8).attr("font-size", 10).attr("class", "mono").text(`p = ${p.toFixed(3)}`);
+  } else if (f.type === "cat") {
+    const pr = d.probs[r], mx = Math.max(...pr), bw = w / pr.length;
+    pr.forEach((p, k) => s.append("rect").attr("x", k * bw).attr("y", h - (h - 2) * p / mx).attr("width", Math.max(bw - .3, .6)).attr("height", (h - 2) * p / mx).attr("fill", C.belief));
+  } else {
+    const xs = d3.range(0, 1.0001, 1 / 80), lo = Math.min(...d.mu[r].map((m, k) => m - 3 * d.sigma[r][k])), hi = Math.max(...d.mu[r].map((m, k) => m + 3 * d.sigma[r][k]));
+    const dens = xs.map(x => { const v = lo + (hi - lo) * x; return d.pi[r].reduce((a, p, k) => a + p * Math.exp(-.5 * ((v - d.mu[r][k]) / d.sigma[r][k]) ** 2) / d.sigma[r][k], 0); });
+    const m = Math.max(...dens);
+    s.append("path").attr("d", d3.area().x((_, k) => xs[k] * w).y0(h).y1(v => h - (h - 2) * v / m)(dens)).attr("fill", rgba(C.belief, .35)).attr("stroke", C.belief);
+  }
+}
+panels.gru = d => {
+  d.append(...head("Autoregressive decoder", `GRUCell(${D.hidden}) · 10 heads · Bernoulli / categorical(72) / mixture(${D.k_mix})`,
+    "The clearance is decoded one field at a time. Each head reads the recurrent state, which has already absorbed the transcript context and every earlier field's value, so the fields co-vary: a sampled heading knows which direction was sampled before it. Each value is embedded and fed back into the GRU. Clauses that are absent are still decoded but carry no likelihood, and are dimmed here."));
+  const ctr = el("div", { class: "ctrls" }), pseg = el("div", { class: "seg" });
+  pseg.append(el("button", { "data-p": "greedy", onclick: () => { path = "greedy"; redraw(); } }, "MAP (argmax, T = 1)"));
+  const sel = el("select", { style: "padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)", onchange: ev => { path = "sample"; draw_j = +ev.target.value; redraw(); } },
+    ...d3.range(S.k).map(j => el("option", { value: j }, `draw ${j + 1}`)));
+  const anim = el("button", { class: "btn", onclick: () => animate() }, "⟳ Sample a new path");
+  const ug = el("label", { class: "chip", style: "cursor:pointer" }, el("input", { type: "checkbox", onchange: ev => { showUngrounded = ev.target.checked; redraw(); } }), "show without state grounding");
+  ctr.append(el("span", { class: "label" }, "path"), pseg, el("span", { class: "label" }, "or"), sel, anim, S.state ? ug : null);
+  const chain = el("div", { class: "chain" }), detail = el("div", { class: "row2", style: "margin-top:8px" });
+  const big = el("div"), side = el("div");
+  detail.append(big, side);
+  d.append(ctr, chain, detail);
+  function redraw() {
+    [...pseg.children].forEach(b => b.classList.toggle("on", path === "greedy"));
+    sel.style.borderColor = path === "sample" ? C.text : C.border;
+    chain.innerHTML = "";
+    GROUPS.forEach(([g, idx], gi) => {
+      const col = el("div", { style: "display:flex;flex-direction:column;gap:4px" }, el("div", { class: "grp", style: "padding-left:4px" }, g));
+      const rowEl = el("div", { style: "display:flex" });
+      idx.forEach((i, n) => {
+        const f = S.fields[i];
+        const c = el("div", { class: "cell" + (i === cellSel ? " sel" : "") + (!active(i) ? " gated" : "") + (i >= revealUpTo ? " hidden" : ""), id: "cell" + i,
+          onclick: () => { cellSel = i; redraw(); } },
+          el("div", { class: "nm" }, f.label), el("div", { class: "val" }, i < revealUpTo ? valText(i) : "…"),
+          S.ground_fields.includes(f.name) && S.state ? el("span", { class: "badge", title: "FiLM-grounded in the aircraft state" }, "s") : null);
+        const mini = d3.select(c).append("svg").attr("width", "100%").attr("height", 34).attr("viewBox", "0 0 100 34").attr("preserveAspectRatio", "none").style("margin-top", "4px");
+        if (i < revealUpTo) miniDist(mini, i, 100, 34);
+        rowEl.append(c);
+        if (n < idx.length - 1 || gi < GROUPS.length - 1) rowEl.append(el("div", { class: "arrow" }, "→"));
+      });
+      col.append(rowEl); chain.append(col);
+    });
+    drawBig(); drawSide();
+  }
+  function drawBig() {
+    big.innerHTML = "";
+    const i = cellSel, f = S.fields[i], st = stepOf(i), r = rowOf(), d0 = st.dist, w = big.clientWidth || 520, h = 230;
+    big.append(el("div", { class: "dh" }, el("h3", {}, `${f.label}`), el("span", { class: "shape" }, `${f.type === "bern" ? "Bernoulli" : f.type === "cat" ? "categorical · 72 bins of 5°" : `Gaussian mixture · K = ${D.k_mix}`}`)),
+      el("p", { class: "lede", style: "margin-bottom:4px" }, f.desc + (f.gate ? ` · counts only when “${S.fields.find(x => x.name === { has_turn: "pres_lat", has_vert: "pres_vert", has_speed: "pres_spd" }[f.gate]).label}” is present` : "")));
+    const s = d3.select(big).append("svg").attr("width", w).attr("height", h + 30);
+    const val = st.value[r];
+    const ung = showUngrounded && st.ungrounded ? st.ungrounded : null;
+    if (f.type === "bern") {
+      const p = d0.p[r], bars = [[0, 1 - p], [1, p]], x = d3.scaleBand([0, 1], [40, w - 20]).padding(.35), y = d3.scaleLinear([0, 1], [h, 10]);
+      const lab = valText(i);
+      s.selectAll("rect.b").data(bars).join("rect").attr("x", b => x(b[0])).attr("width", x.bandwidth()).attr("y", b => y(b[1])).attr("height", b => h - y(b[1])).attr("rx", 4)
+        .attr("fill", b => (b[0] === 1) === (val > .5) ? C.belief : rgba(C.belief, .3));
+      s.append("g").attr("class", "axis").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).tickFormat(v => ({ 0: "0", 1: "1" })[v]));
+      s.append("g").attr("class", "axis").attr("transform", "translate(40,0)").call(d3.axisLeft(y).ticks(4));
+      if (ung) { const pu = ung.p[r]; [[0, 1 - pu], [1, pu]].forEach(b => s.append("rect").attr("x", x(b[0])).attr("width", x.bandwidth()).attr("y", y(b[1])).attr("height", 2).attr("fill", C.point)); }
+      s.append("text").attr("x", w - 20).attr("y", 20).attr("text-anchor", "end").attr("font-size", 12).attr("font-weight", 600).attr("fill", C.text).text(`drawn: ${lab}`);
+    } else if (f.type === "cat") {
+      const pr = d0.probs[r], cx = Math.min(w / 2, 150) + 20, cy = h / 2 + 12, R0 = 52, R1 = Math.min(118, h / 2), mx = Math.max(...pr, ...(ung ? ung.probs[r] : [0]));
+      const arc = d3.arc();
+      pr.forEach((p, k) => {
+        const a0 = (k * 5 - 2.5) * Math.PI / 180, a1 = (k * 5 + 2.5) * Math.PI / 180;
+        s.append("path").attr("transform", `translate(${cx},${cy})`).attr("d", arc({ innerRadius: R0, outerRadius: R0 + (R1 - R0) * p / mx, startAngle: a0, endAngle: a1 }))
+          .attr("fill", Math.abs(k * 5 - val) < .1 ? C.belief : rgba(C.belief, .45)).on("mousemove", ev => tip.show(`${fmt.hdg(k * 5)} · p = ${p.toFixed(4)}`, ev)).on("mouseleave", () => tip.hide());
+        if (ung) s.append("path").attr("transform", `translate(${cx},${cy})`).attr("d", arc({ innerRadius: R0 + (R1 - R0) * ung.probs[r][k] / mx - 1, outerRadius: R0 + (R1 - R0) * ung.probs[r][k] / mx + 1, startAngle: a0, endAngle: a1 })).attr("fill", C.point);
+      });
+      s.append("circle").attr("cx", cx).attr("cy", cy).attr("r", R0 - 2).attr("fill", "none").attr("stroke", C.border);
+      [0, 90, 180, 270].forEach(a => s.append("text").attr("x", cx + (R0 - 14) * Math.sin(a * Math.PI / 180)).attr("y", cy - (R0 - 14) * Math.cos(a * Math.PI / 180) + 4).attr("text-anchor", "middle").attr("font-size", 10).attr("fill", C.muted).text(String(a || 360).padStart(3, "0")));
+      const va = val * Math.PI / 180;
+      s.append("line").attr("x1", cx).attr("y1", cy).attr("x2", cx + (R1 + 6) * Math.sin(va)).attr("y2", cy - (R1 + 6) * Math.cos(va)).attr("stroke", C.text).attr("stroke-width", 2);
+      const top = pr.map((p, k) => [k * 5, p]).sort((a, b) => b[1] - a[1]).slice(0, 5);
+      const tx = cx + R1 + 40;
+      s.append("text").attr("x", tx).attr("y", 30).attr("font-size", 11).attr("font-weight", 700).attr("fill", C.muted).text("MOST PROBABLE HEADINGS");
+      top.forEach(([hd, p], n) => {
+        s.append("text").attr("x", tx).attr("y", 52 + n * 22).attr("class", "mono").attr("font-size", 12).attr("fill", C.text).text(fmt.hdg(hd));
+        s.append("rect").attr("x", tx + 50).attr("y", 43 + n * 22).attr("height", 9).attr("rx", 3).attr("width", 120 * p / top[0][1]).attr("fill", C.belief);
+        s.append("text").attr("x", tx + 176).attr("y", 52 + n * 22).attr("class", "mono").attr("font-size", 11).attr("fill", C.muted).text(fmt.pct(p));
+      });
+      s.append("text").attr("x", tx).attr("y", 52 + 5 * 22 + 8).attr("font-size", 12).attr("font-weight", 600).attr("fill", C.text).text(`drawn: ${fmt.hdg(val)}`);
+    } else {
+      const comps = d0.pi[r].map((p, k) => ({ p, m: d0.mu[r][k], s: d0.sigma[r][k] }));
+      const all = comps.concat(ung ? ung.pi[r].map((p, k) => ({ p, m: ung.mu[r][k], s: ung.sigma[r][k] })) : []);
+      const big_ = all.filter(c => c.p > .02);
+      let lo = Math.min(...big_.map(c => c.m - 3.5 * c.s), val), hi = Math.max(...big_.map(c => c.m + 3.5 * c.s), val);
+      if (hi - lo < (f.name === "alt" ? 2000 : 40)) { const m = (hi + lo) / 2, half = f.name === "alt" ? 1000 : 20; lo = m - half; hi = m + half; }
+      const x = d3.scaleLinear([lo, hi], [44, w - 16]), xs = d3.range(lo, hi, (hi - lo) / 300);
+      const pdf = (cs, v) => cs.reduce((a, c) => a + c.p * Math.exp(-.5 * ((v - c.m) / c.s) ** 2) / (c.s * Math.sqrt(2 * Math.PI)), 0);
+      const dens = xs.map(v => pdf(comps, v)), dU = ung ? xs.map(v => pdf(all.slice(comps.length), v)) : null;
+      const y = d3.scaleLinear([0, Math.max(...dens, ...(dU || [0])) * 1.08], [h, 14]);
+      s.append("g").attr("class", "axis").attr("transform", `translate(0,${h})`).call(d3.axisBottom(x).ticks(6).tickFormat(v => f.name === "alt" ? d3.format(",")(v) : v));
+      comps.forEach(c => { if (c.p < .01) return;
+        s.append("path").attr("d", d3.line().x((_, k) => x(xs[k])).y(v => y(v))(xs.map(v => c.p * Math.exp(-.5 * ((v - c.m) / c.s) ** 2) / (c.s * Math.sqrt(2 * Math.PI)))))
+          .attr("fill", "none").attr("stroke", C.belief).attr("stroke-dasharray", "3 3").attr("stroke-opacity", .7); });
+      s.append("path").attr("d", d3.area().x((_, k) => x(xs[k])).y0(h).y1(v => y(v))(dens)).attr("fill", rgba(C.belief, .22)).attr("stroke", C.belief).attr("stroke-width", 2);
+      if (dU) s.append("path").attr("d", d3.line().x((_, k) => x(xs[k])).y(v => y(v))(dU)).attr("fill", "none").attr("stroke", C.point).attr("stroke-width", 2);
+      s.append("line").attr("x1", x(val)).attr("x2", x(val)).attr("y1", 10).attr("y2", h).attr("stroke", C.text).attr("stroke-width", 2);
+      s.append("text").attr("x", Math.min(x(val) + 6, w - 120)).attr("y", 22).attr("font-size", 12).attr("font-weight", 600).attr("fill", C.text).text(`drawn: ${valText(i)}`);
+      s.append("text").attr("x", w / 2).attr("y", h + 28).attr("text-anchor", "middle").attr("font-size", 10.5).attr("fill", C.muted).text(f.name === "alt" ? "assigned altitude (ft)" : "assigned speed (kt)");
+    }
+    if (ung) big.append(el("div", { class: "legend-inline" }, el("span", {}, el("i", { style: `background:${C.belief}` }), "grounded in state s (what the model uses)"),
+      el("span", {}, el("i", { style: `background:${C.point}` }), "same recurrent state, grounding removed")));
+  }
+  function drawSide() {
+    side.innerHTML = "";
+    const st = stepOf(cellSel), r = rowOf();
+    side.append(el("div", { class: "label" }, "recurrent state entering each field"),
+      el("p", { class: "muted", style: "margin:2px 0 6px" }, "h before each head reads it (MAP path). Changes row to row are the GRU absorbing each decoded value."));
+    const cv = el("canvas", { class: "hm" }); side.append(cv);
+    heat(cv, matrix(S.gru), { cw: 2, ch: 13, label: (i, j, v) => `entering <b>${S.fields[i].label}</b> · dim ${j}<br>${v.toFixed(3)}` });
+    const kv = el("div", { class: "kv", style: "margin-top:12px" });
+    kv.append(el("span", { class: "k" }, "‖h‖ entering this field"), el("span", { class: "mono" }, st.h_norm[r].toFixed(2)));
+    if (st.film) kv.append(el("span", { class: "k" }, "state FiLM ‖γ‖, ‖β‖"), el("span", { class: "mono" }, `${st.film.gamma[r].toFixed(2)}, ${st.film.beta[r].toFixed(2)}`));
+    if (st.active) kv.append(el("span", { class: "k" }, "clause gate"), el("span", { class: "mono" }, active(cellSel) ? "present (counts in the likelihood)" : "absent (value ignored)"));
+    kv.append(el("span", { class: "k" }, "fed back as"), el("span", { class: "mono" }, `${S.fields[cellSel].type === "cat" ? "embedding[bin]" : "Linear(value)"} + field_emb[${cellSel}]`));
+    side.append(kv);
+  }
+  async function animate() {
+    path = "sample"; draw_j = (draw_j + 1) % S.k; sel.value = draw_j;
+    for (let i = 0; i <= 10; i++) {
+      revealUpTo = i; cellSel = Math.min(i, 9); redraw();
+      const c = $("#cell" + Math.min(i, 9)); if (c && i < 10) { c.classList.add("flash"); }
+      await sleep(i < 10 ? 520 : 0);
+    }
+    revealUpTo = 10; redraw();
+  }
+  window._animateChain = animate;
+  redraw();
+};
+panels.out = d => {
+  d.append(...head("Joint clearance samples", `${S.k} ancestral draws at T = ${S.temperature.toFixed(2)}`,
+    "Each line is one complete clearance drawn by running the chain from start to finish. Because every field is conditioned on the ones before it, the draws are coherent: no line combines a present heading with an absent turn. Spread across the lines is the communication uncertainty that Stage 2 propagates. The MAP clearance is drawn in the point colour."));
+  const axes = S.fields.map((f, i) => ({ f, i }));
+  const val = (rec, r) => rec.value[r];
+  const w = d.clientWidth - 30 || 980, h = 330, x = d3.scalePoint(axes.map(a => a.i), [60, w - 60]);
+  const ys = axes.map(({ f, i }) => {
+    const vs = [...S.samples[i].value, S.greedy[i].value[0]];
+    const dom = f.type === "bern" ? [0, 1] : f.name === "hdg" ? [0, 360] : d3.extent(vs).map((v, k) => v + (k ? 1 : -1) * Math.max(1, (d3.extent(vs)[1] - d3.extent(vs)[0]) * .1));
+    return d3.scaleLinear(dom, [h - 30, 30]);
+  });
+  const s = d3.select(d).append("svg").attr("width", w).attr("height", h + 20);
+  const line = r => d3.line()(axes.map(({ i }) => [x(i), ys[i](val(S.samples[i], r)) + (S.fields[i].type === "bern" ? (r - S.k / 2) * 1.2 : 0)]));
+  const gl = s.append("g");
+  d3.range(S.k).forEach(r => gl.append("path").attr("d", line(r)).attr("fill", "none").attr("stroke", C.belief).attr("stroke-width", 1.6).attr("stroke-opacity", .45)
+    .on("mouseenter", function (ev) { d3.select(this).attr("stroke-opacity", 1).attr("stroke-width", 3).raise();
+      tip.show(`<b>draw ${r + 1}</b><br>${S.fields.map((f, i) => (S.samples[i].active == null || S.samples[i].active[r] > .5) ? `${f.label}: ${fmtv(i, S.samples[i].value[r])}` : null).filter(Boolean).join("<br>")}`, ev); })
+    .on("mouseleave", function () { d3.select(this).attr("stroke-opacity", .45).attr("stroke-width", 1.6); tip.hide(); }));
+  s.append("path").attr("d", d3.line()(axes.map(({ i }) => [x(i), ys[i](S.greedy[i].value[0])]))).attr("fill", "none").attr("stroke", C.point).attr("stroke-width", 3);
+  axes.forEach(({ f, i }) => {
+    const g = s.append("g").attr("class", "axis").attr("transform", `translate(${x(i)},0)`).call(d3.axisLeft(ys[i]).ticks(f.type === "bern" ? 1 : 5).tickFormat(v => f.type === "bern" ? v : f.name === "alt" ? d3.format(".2s")(v) : v));
+    s.append("text").attr("x", x(i)).attr("y", 14).attr("text-anchor", "middle").attr("font-size", 11).attr("font-weight", 600).attr("fill", C.text).text(f.label);
+  });
+  d.append(el("div", { class: "legend-inline" }, el("span", {}, el("i", { style: `background:${C.belief}` }), `${S.k} sampled clearances (hover one)`), el("span", {}, el("i", { style: `background:${C.point}` }), "MAP clearance")));
+};
+function fmtv(i, v) { const f = S.fields[i]; if (f.type === "bern") return v > .5 ? "1" : "0"; if (f.name === "hdg") return fmt.hdg(v); if (f.name === "alt") return fmt.alt(v); return fmt.n(v) + " kt"; }
+
+// ---------------------------------------------------------------------- selection and the guided pass
+function select(id) {
+  selected = id; syncSel();
+  const d = $("#detail"); d.innerHTML = ""; panels[id](d);
+}
+const ORDER = ["text", "tok", "emb", "enc1", "enc2", "slots", "ctx", "gru", "out"];
+const NARR = { text: "The recognizer's transcript and its confidence enter.", tok: "Split into tokens; digits become single tokens.", emb: "Each token becomes a 256-d vector, with position added and κ prepended.",
+  enc1: "Layer 1: every token attends over every other.", enc2: "Layer 2 refines those representations.", slots: "Six learned queries each pull out what they specialise in.",
+  ctx: "The slots are fused into one context that seeds the decoder.", gru: "Fields are decoded one at a time, each conditioned on those before it.", out: "Repeat the chain k times to get coherent joint samples." };
+let running = false;
+$("#play").onclick = async () => {
+  if (running) return; running = true; $("#play").disabled = true;
+  for (let n = 0; n < ORDER.length; n++) {
+    const id = ORDER[n];
+    gN.classed("lit", d => d.id === id);
+    $("#status").textContent = `${n + 1}/${ORDER.length} · ${NARR[id]}`;
+    select(id);
+    if (n < ORDER.length - 1) {
+      const e = edges[n];
+      packet.attr("opacity", 1);
+      await new Promise(res => tween("pk", 650, t => packet.attr("cx", e.a[0] + (e.b[0] - e.a[0]) * t).attr("cy", e.a[1]), res));
+      if (id === "gru") { await sleep(400); await window._animateChain(); await sleep(900); }
+      else await sleep(1500);
+    }
+  }
+  packet.attr("opacity", 0); gN.classed("lit", false); running = false; $("#play").disabled = false;
+  $("#status").textContent = "Done. Click any block to look inside it.";
+};
+select(selected);
+// a component rendered in a hidden tab starts at zero width; redraw once it has a real size
+let _rw = innerWidth;
+addEventListener("resize", () => { if (Math.abs(innerWidth - _rw) > 20 && !running) { _rw = innerWidth; location.reload(); } });
+</script>
+</body>
+</html>

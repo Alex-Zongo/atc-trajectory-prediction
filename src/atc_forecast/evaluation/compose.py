@@ -92,10 +92,15 @@ def stage1_clearances(model, tokens, confidence, k, state=None):
 
 
 @torch.no_grad()
-def calibrated_cloud(flow, batch, clearances, exec_k, n_steps, lam, onset_alt, guidance=1.0):
-    """Positions [B, ., H, 3] pooled over clearances, each inflated before pooling."""
+def calibrated_cloud(flow, batch, clearances, exec_k, n_steps, lam, onset_alt, guidance=1.0,
+                     return_ctrl=False):
+    """Positions [B, ., H, 3] pooled over clearances, each inflated before pooling.
+
+    `return_ctrl` also returns the sampled controls [B, ., H, 4] in the same order. The
+    inflation acts on positions only, so these are the flow's own, uninflated controls.
+    """
     H = batch["fut_ctrl"].shape[1]
-    clouds = []
+    clouds, ctrls = [], []
     for dv in clearances:
         b = dict(batch)
         if dv is not None:
@@ -108,6 +113,9 @@ def calibrated_cloud(flow, batch, clearances, exec_k, n_steps, lam, onset_alt, g
                          onset_alt.repeat_interleave(exec_k)).reshape(B, exec_k, H, 3)
         mean = pos.mean(1, keepdim=True)
         clouds.append(mean + lam * (pos - mean))
+        ctrls.append(ctrl)
+    if return_ctrl:
+        return torch.cat(clouds, dim=1), torch.cat(ctrls, dim=1)
     return torch.cat(clouds, dim=1)
 
 

@@ -1,0 +1,393 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://unpkg.com/deck.gl@9.0.38/dist.min.js"></script>
+<style>
+/*__BASE_CSS__*/
+#app { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; gap: 8px; padding: 2px; }
+.steps { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.step { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 4px; border-radius: 999px; border: 1px solid var(--border);
+  cursor: pointer; font-size: 12px; color: var(--text2); background: var(--surface); transition: all .2s; }
+.step .n { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; background: var(--surface3); color: var(--text2); }
+.step.done .n { background: var(--text2); color: var(--surface); }
+.step.on { border-color: var(--text); color: var(--text); font-weight: 600; background: var(--surface2); }
+.step.on .n { background: var(--text); color: var(--surface); }
+.cap { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; background: var(--surface2); display: flex; gap: 14px; align-items: flex-start; }
+.cap h3 { font-size: 15px; }
+.cap p { margin: 3px 0 0; color: var(--text2); max-width: 1050px; }
+.cap .nums { display: flex; gap: 18px; margin-left: auto; }
+.cap .num { text-align: right; } .cap .num b { display: block; font-family: var(--mono); font-size: 18px; color: var(--text); } .cap .num span { font-size: 10.5px; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.main { display: grid; grid-template-columns: 1.05fr 1fr; gap: 12px; min-height: 0; }
+.mapbox { position: relative; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--surface2); }
+#map { position: absolute; inset: 0; }
+.attrib { position: absolute; right: 6px; bottom: 4px; font-size: 10px; color: var(--muted); background: color-mix(in srgb, var(--surface) 70%, transparent); padding: 1px 5px; border-radius: 4px; }
+.mlegend { position: absolute; left: 10px; bottom: 10px; padding: 6px 9px; border-radius: 9px; display: flex; gap: 10px; flex-wrap: wrap; max-width: 92%;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--border); font-size: 11.5px; color: var(--text2); }
+.mlegend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-right: 4px; }
+#side { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; overflow-y: auto; }
+.nav { display: flex; gap: 6px; margin-left: auto; }
+.phrase { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; opacity: 0; transform: translateY(6px); transition: all .35s; }
+.phrase.in { opacity: 1; transform: none; }
+.phrase.focus { border-color: var(--text); }
+.phrase .chain { font-family: var(--mono); font-size: 12px; color: var(--text2); }
+.phrase .chain b { color: var(--text); }
+.phrase .say { font-family: var(--mono); font-size: 12.5px; margin-top: 4px; color: var(--text); }
+.tok { font-family: var(--mono); font-size: 11.5px; padding: 2px 6px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface); display: inline-block; margin: 2px; }
+.cut { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+.cut .ok { color: var(--surface); background: var(--oracle); border-radius: 50%; width: 18px; height: 18px; min-width: 18px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="steps" id="steps"><span class="nav"><button class="btn" id="prev">←</button><button class="btn primary" id="auto">▶ Play all</button><button class="btn" id="next">→</button></span></div>
+  <div class="cap" id="cap"></div>
+  <div class="main">
+    <div class="mapbox"><div id="map"></div><div class="mlegend" id="mlegend"></div><div class="attrib">Esri, HERE, Garmin, © OpenStreetMap contributors</div></div>
+    <div id="side"></div>
+  </div>
+</div>
+<script>/*__PAYLOAD__*/</script>
+<script>/*__BASE_JS__*/</script>
+<script>
+const S = P.story, PT = S.points, SG = S.signals, SEG = S.segments, W = S.window, PR = S.params;
+const NPT = PT.t.length;
+const legEnd = Math.max(...SEG.filter(s => s.in_leg).map(s => s.t1));
+const PHASE = { climb: C.belief, descent: C.point, level_low: C.oracle, cruise: C.accent, ground: C.muted };
+const LAT = { L: C.accent, R: C.belief, S: null }, VERT = { climb: C.oracle, descend: C.point, level: null }, SPD = { accel: "#eda100", decel: "#e87ba4", const: null };
+const STEPS = [
+  { id: "raw", t: "Raw ADS-B", d: `Every position report this aircraft broadcast around the leg, as OpenSky recorded it: ${NPT.toLocaleString()} samples at irregular intervals, some with missing fields. Nothing has been inferred yet.` },
+  { id: "phase", t: "Label & clean", d: `Each sample gets a kinematic phase from its vertical rate and altitude (climb or descent beyond ±${PR.vs_th} m/s, cruise when level above FL180, level_low when level below it, ground). Samples with a missing field are dropped, and so is ground movement.` },
+  { id: "gaps", t: "Split on gaps", d: `A track is cut wherever coverage drops out for more than ${PR.max_gap_s} s, so that no segment spans state that was never observed. Pieces with fewer than ${PR.min_points} samples are discarded.` },
+  { id: "smooth", t: "Smooth", d: `Track, altitude and speed are smoothed with a Savitzky–Golay filter (window ${PR.smooth_win}, order 2). Track is unwrapped first, so that 359° → 0° is not read as a full turn.` },
+  { id: "rates", t: "Rates & thresholds", d: `Differentiating the smoothed channels gives turn rate, vertical speed and acceleration. Each is labelled against a threshold (|turn| > ${PR.turn_rate_th}°/s, |v/s| > ${PR.vs_th} m/s, |accel| > ${PR.accel_th} m/s²), one label per channel a controller commands.` },
+  { id: "merge", t: "Merge short runs", d: `The three labels are combined into one state per sample. Any run shorter than ${PR.min_seg_s} s is ADS-B jitter, not a maneuver, and is absorbed into its neighbour, shortest first.` },
+  { id: "segments", t: "Segments", d: `A segment is a maximal run of constant state. A run labelled straight whose heading still drifts by ≥ ${PR.cum_turn_th}° is relabelled as a turn, which catches gradual turns. A segment with any non-steady channel is a maneuver; the rest are steady.` },
+  { id: "phrase", t: "Clearances", d: "Each maneuver onset gets the clearance that would have produced it, taken from the segment's EXIT values and rounded the way a controller speaks: headings to 5°, altitudes to 1,000 ft (flight levels above FL180), speeds to 10 kt. Steady segments get no clearance." },
+  { id: "legs", t: "Legs", d: `Segments are grouped into legs, maximal runs with no gap longer than ${PR.leg_gap_s} s. One aircraft flies several legs in a day; a leg is the unit for train/validation splits, so no trajectory point ever lands on both sides.` },
+  { id: "window", t: "Stage-2 window", d: "At each maneuver onset a window is cut. The past is the raw samples in the half-minute strictly BEFORE the onset; the future is 60 s on a 1 Hz grid, truncated at the next maneuver's onset and masked wherever coverage was missing. This is the stored window, exactly as Stage 2 trained on it." },
+  { id: "observe", t: "Observation channel", d: "Last, the clean clearance is turned into what a recognizer might hear: spoken out, passed through a channel fitted to a real ATC recognizer (dropouts, digit confusions, flipped verbs), and wrapped in radio context. Each draw gives a different Stage-1 training example for the same clearance." },
+];
+let step = 0, playing = false;
+
+// ---------------------------------------------------------------------- stepper and caption
+const stepsEl = $("#steps"), navEl = $(".nav");
+STEPS.forEach((s, i) => stepsEl.insertBefore(el("span", { class: "step", onclick: () => go(i) }, el("span", { class: "n" }, i + 1), s.t), navEl));
+const kept = PT.status.filter(s => s === "kept").length;
+const leg = S.legs.find(l => l.leg_id === S.leg_id);
+function caption() {
+  const s = STEPS[step], c = S.counts, nums = {
+    raw: [[NPT, "samples in view"], [S.callsign, "callsign"]], phase: [[kept, "kept"], [NPT - kept, "dropped"]],
+    gaps: [[SG.length, "tracks"], [PR.max_gap_s + " s", "max gap"]], smooth: [[PR.smooth_win, "window"]], rates: [[3, "channels"]],
+    merge: [[PR.min_seg_s + " s", "min run"]], segments: [[SEG.filter(x => x.in_leg).length, "segments"], [SEG.filter(x => x.in_leg && x.is_maneuver).length, "maneuvers"]],
+    phrase: [[SEG.filter(x => x.in_leg && x.is_maneuver).length, "clearances"]], legs: [[S.legs.length, "legs today"], [leg ? leg.n : "–", "segments in leg"]],
+    window: [[W.past_t.length, "past obs"], [W.fut_mask.filter(Boolean).length + "/60", "future valid"]], observe: [[S.draws.length, "draws"]] }[s.id] || [];
+  $("#cap").innerHTML = `<div><h3>${step + 1}. ${s.t}</h3><p>${s.d}</p></div><div class="nums">${nums.map(([v, k]) => `<div class="num"><b>${typeof v === "number" ? v.toLocaleString() : v}</b><span>${k}</span></div>`).join("")}</div>`;
+  [...stepsEl.querySelectorAll(".step")].forEach((e, i) => { e.classList.toggle("on", i === step); e.classList.toggle("done", i < step); });
+}
+
+// ---------------------------------------------------------------------- map
+const mapEl = $("#map");
+const lonE = d3.extent(PT.lon.filter(v => v != null)), latE = d3.extent(PT.lat.filter(v => v != null));
+const fit = new deck.WebMercatorViewport({ width: mapEl.clientWidth || 600, height: mapEl.clientHeight || 500 }).fitBounds([[lonE[0], latE[0]], [lonE[1], latE[1]]], { padding: 40 });
+let viewState = { longitude: fit.longitude, latitude: fit.latitude, zoom: fit.zoom, pitch: 0, bearing: 0 };
+const dk = new deck.Deck({ parent: mapEl, viewState, controller: true, onViewStateChange: ({ viewState: v }) => { viewState = v; dk.setProps({ viewState }); },
+  getTooltip: ({ object, layer }) => object && layer.id === "pts" ? { html: `t+${fmt.t(PT.t[object])}<br>${fmt.n(PT.alt_ft[object])} ft · ${fmt.n(PT.gs_kt[object])} kt<br>phase ${PT.phase[object]} · ${PT.status[object]}`, className: "tip show" }
+    : object && layer.id === "seg" ? { html: segLabel(object), className: "tip show" } : null });
+const tileLayer = (id, url, opacity) => new deck.TileLayer({ id, data: url, tileSize: 256, opacity, maxZoom: 16,
+  renderSubLayers: p => { const { west, south, east, north } = p.tile.bbox; return new deck.BitmapLayer(p, { data: null, image: p.data, bounds: [west, south, east, north] }); } });
+const tiles = () => [tileLayer("tiles", P.tile_url, .6), tileLayer("labels", P.label_url, .8)];
+const ids = d3.range(NPT).filter(i => PT.lon[i] != null && PT.lat[i] != null);
+let reveal = Infinity, mapMode = "raw";
+const rgb = (h, a = 255) => hexRgb(h, a);
+function ptColor(i) {
+  if (PT.t[i] > reveal) return [0, 0, 0, 0];
+  if (mapMode === "raw") return rgb(C.text2, 170);
+  if (PT.status[i] !== "kept") return rgb(C.muted, 60);
+  return rgb(PHASE[PT.phase[i]] || C.text2, 220);
+}
+function segPaths() {
+  return SEG.map(s => { const pts = ids.filter(i => PT.status[i] === "kept" && PT.t[i] >= s.t0 && PT.t[i] <= s.t1).map(i => [PT.lon[i], PT.lat[i]]); return { ...s, path: pts }; }).filter(s => s.path.length > 1);
+}
+const SEGP = segPaths();
+const segColor = s => !s.in_leg ? rgb(C.muted, 80) : s.is_maneuver ? rgb(s.lateral !== "S" ? (LAT[s.lateral]) : s.vertical !== "level" ? VERT[s.vertical] : SPD[s.speed], 235) : rgb(C.muted, 200);
+function segLabel(s) { return `<b>seg ${s.seg_idx}</b> · ${s.leg_id.split("_").slice(-1)}<br>${[s.lateral !== "S" ? "turn " + s.lateral : "straight", s.vertical, s.speed].join(" · ")}<br>${s.duration_s.toFixed(0)} s · coverage ${s.coverage}${s.readable ? "<br>" + s.readable : ""}`; }
+const smooth = SG.map(g => ({ path: g.lon.map((lo, i) => [lo, g.lat[i]]) }));
+function mapLayers() {
+  const L = [...tiles()];
+  const showPts = ["raw", "phase", "gaps", "smooth"].includes(mapMode);
+  L.push(new deck.ScatterplotLayer({ id: "pts", data: ids, getPosition: i => [PT.lon[i], PT.lat[i]], getFillColor: ptColor, getRadius: mapMode === "raw" ? 2.6 : 2.2, radiusUnits: "pixels",
+    pickable: true, opacity: showPts ? 1 : .18, updateTriggers: { getFillColor: [reveal, mapMode] }, transitions: { getFillColor: 600 } }));
+  if (["gaps", "smooth"].includes(mapMode))
+    L.push(new deck.PathLayer({ id: "smooth", data: smooth, getPath: d => d.path, getColor: rgb(C.text, mapMode === "smooth" ? 230 : 0), getWidth: 2, widthUnits: "pixels", transitions: { getColor: 600 } }));
+  if (["segments", "phrase", "legs", "rates", "merge"].includes(mapMode)) {
+    L.push(new deck.PathLayer({ id: "seg", data: SEGP, getPath: d => d.path, getColor: segColor, getWidth: d => d.in_leg ? 4 : 2, widthUnits: "pixels", pickable: true, jointRounded: true, capRounded: true }));
+    const on = SEG.filter(s => s.in_leg && s.is_maneuver);
+    L.push(new deck.ScatterplotLayer({ id: "onsets", data: on, getPosition: s => [s.lon0, s.lat0], getFillColor: rgb(C.surface), getLineColor: rgb(C.text), stroked: true, lineWidthMinPixels: 2, getRadius: 5, radiusUnits: "pixels" }));
+    if (mapMode === "phrase") L.push(new deck.TextLayer({ id: "ph", data: on, getPosition: s => [s.lon0, s.lat0], getText: s => s.directive.replace(/\.$/, ""), getSize: 11.5, getColor: rgb(C.text),
+      getPixelOffset: [8, -10], getTextAnchor: "start", fontFamily: "Inter, sans-serif", fontWeight: 600, outlineWidth: 4, outlineColor: rgb(C.surface, 235), fontSettings: { sdf: true }, characterSet: "auto",
+      // labels that would overlap are hidden, focus clearance first; zoom in to reveal the rest
+      extensions: [new deck.CollisionFilterExtension()], collisionEnabled: true, getCollisionPriority: s => s.is_focus ? 1000 : -s.seg_idx }));
+  }
+  if (["window", "observe"].includes(mapMode)) {
+    L.push(new deck.PathLayer({ id: "ctx", data: SEGP.filter(s => s.in_leg), getPath: d => d.path, getColor: rgb(C.muted, 110), getWidth: 2, widthUnits: "pixels" }));
+    const fut = W.fut_lat.map((la, i) => ({ p: [W.fut_lon[i], la], ok: W.fut_mask[i], i }));
+    L.push(new deck.ScatterplotLayer({ id: "fut", data: fut, getPosition: d => d.p, getFillColor: d => d.ok ? rgb(C.belief, 230) : rgb(C.surface, 0), getLineColor: d => d.ok ? rgb(C.surface) : rgb(C.muted, 200),
+      stroked: true, lineWidthMinPixels: 1.2, getRadius: 3.6, radiusUnits: "pixels" }));
+    L.push(new deck.ScatterplotLayer({ id: "past", data: W.past_lat.map((la, i) => [W.past_lon[i], la]), getPosition: d => d, getFillColor: rgb(C.text), getLineColor: rgb(C.surface), stroked: true, lineWidthMinPixels: 1.5, getRadius: 4, radiusUnits: "pixels" }));
+    L.push(new deck.ScatterplotLayer({ id: "on", data: [[W.lon0, W.lat0]], getPosition: d => d, getFillColor: rgb(C.oracle), getLineColor: rgb(C.surface), stroked: true, lineWidthMinPixels: 2, getRadius: 8, radiusUnits: "pixels" }));
+  }
+  return L;
+}
+function legendFor() {
+  const items = {
+    raw: [[C.text2, "ADS-B sample"]], phase: Object.entries(PHASE).map(([k, v]) => [v, k.replace("_", " ")]).concat([[C.muted, "dropped (faint)"]]),
+    gaps: [[C.text2, "kept samples"]], smooth: [[C.text, "smoothed track"]],
+    segments: [[C.accent, "turn left"], [C.belief, "turn right"], [C.oracle, "climb"], [C.point, "descend"], ["#eda100", "accelerate"], ["#e87ba4", "decelerate"], [C.muted, "steady / other leg"]],
+    window: [[C.text, "past: raw obs before onset"], [C.oracle, "clearance onset"], [C.belief, "future: valid 1 Hz step"], [C.muted, "future: masked (hollow)"]],
+  };
+  const m = { rates: "segments", merge: "segments", phrase: "segments", legs: "segments", observe: "window" }[mapMode] || mapMode;
+  $("#mlegend").innerHTML = (items[m] || []).map(([c, t]) => `<span><i style="background:${c}"></i>${t}</span>`).join("");
+}
+function zoomTo(lons, lats, pad = 60) {
+  const f = new deck.WebMercatorViewport({ width: mapEl.clientWidth, height: mapEl.clientHeight }).fitBounds([[d3.min(lons), d3.min(lats)], [d3.max(lons), d3.max(lats)]], { padding: pad, maxZoom: 13.5 });
+  const v0 = { ...viewState }, v1 = { longitude: f.longitude, latitude: f.latitude, zoom: f.zoom };
+  tween("zoom", 900, x => { viewState = { ...viewState, longitude: v0.longitude + (v1.longitude - v0.longitude) * x, latitude: v0.latitude + (v1.latitude - v0.latitude) * x, zoom: v0.zoom + (v1.zoom - v0.zoom) * x }; dk.setProps({ viewState }); });
+}
+function drawMap() { dk.setProps({ layers: mapLayers() }); legendFor(); }
+
+// ---------------------------------------------------------------------- side panels
+const side = $("#side");
+const tExt = [Math.min(...PT.t), Math.max(...PT.t)];
+function panelSvg(h) { const w = side.clientWidth - 26; return { s: d3.select(side).append("svg").attr("width", w).attr("height", h), w }; }
+function tsPanel({ title, getRaw, getSm, unit, band, ribbon, ribbonRaw, xdom, h = 128, rawAlpha = .55, segShade = false, onsets = false, extra, vals: given, noSG = false }) {
+  const { s, w } = panelSvg(h + (ribbon ? 40 : 0) + (ribbonRaw ? 20 : 0));
+  const x = d3.scaleLinear(xdom || tExt, [46, w - 6]);
+  const vals = given ? [...given] : [];
+  if (!given) SG.forEach(g => { if (getSm) vals.push(...getSm(g)); if (getRaw) vals.push(...getRaw(g)); });
+  const ext = d3.extent(vals.filter(v => v != null && isFinite(v)));
+  if (band) { ext[0] = Math.min(ext[0], -band * 2); ext[1] = Math.max(ext[1], band * 2); }
+  const pad = (ext[1] - ext[0]) * .08 || 1, y = d3.scaleLinear([ext[0] - pad, ext[1] + pad], [h - 18, 16]);
+  s.append("text").attr("x", 46).attr("y", 11).attr("font-size", 11.5).attr("font-weight", 650).attr("fill", C.text).text(title);
+  s.append("g").attr("class", "axis").attr("transform", `translate(0,${h - 18})`).call(d3.axisBottom(x).ticks(6).tickFormat(v => fmt.t(v)));
+  s.append("g").attr("class", "axis").attr("transform", "translate(46,0)").call(d3.axisLeft(y).ticks(4).tickFormat(d3.format("~s")));
+  const clip = "c" + Math.random().toString(36).slice(2);
+  s.append("clipPath").attr("id", clip).append("rect").attr("x", 46).attr("y", 0).attr("width", w - 52).attr("height", h);
+  const g = s.append("g").attr("clip-path", `url(#${clip})`);
+  if (segShade) SEG.filter(z => z.in_leg).forEach(z => g.append("rect").attr("x", x(z.t0)).attr("width", Math.max(0, x(z.t1) - x(z.t0))).attr("y", 16).attr("height", h - 34)
+    .attr("fill", z.is_maneuver ? rgba(C.belief, .07) : "transparent").attr("stroke", C.border).attr("stroke-width", .5));
+  if (band) {
+    g.append("rect").attr("x", 46).attr("width", w - 52).attr("y", y(band)).attr("height", y(-band) - y(band)).attr("fill", rgba(C.text2, .08));
+    [band, -band].forEach(b => g.append("line").attr("x1", 46).attr("x2", w).attr("y1", y(b)).attr("y2", y(b)).attr("stroke", C.text2).attr("stroke-dasharray", "4 3"));
+    g.append("text").attr("x", w - 10).attr("y", y(band) - 3).attr("text-anchor", "end").attr("font-size", 10).attr("fill", C.muted).text(`±${band} ${unit}`);
+  }
+  if (!noSG) SG.forEach(gg => {
+    if (getRaw) { const r = getRaw(gg); g.append("g").selectAll("circle").data(gg.t).join("circle").attr("cx", t => x(t)).attr("cy", (t, i) => y(r[i])).attr("r", 1.5).attr("fill", rgba(C.text2, rawAlpha)); }
+    if (getSm) { const sm = getSm(gg), p = g.append("path").attr("d", d3.line().defined(v => v[1] != null)(gg.t.map((t, i) => [x(t), y(sm[i])]))).attr("fill", "none").attr("stroke", C.text).attr("stroke-width", 1.8);
+      const L = p.node().getTotalLength(); p.attr("stroke-dasharray", `${L} ${L}`).attr("stroke-dashoffset", L).transition().duration(1100).attr("stroke-dashoffset", 0); }
+  });
+  if (onsets) SEG.filter(z => z.in_leg && z.is_maneuver).forEach(z => g.append("line").attr("x1", x(z.t0)).attr("x2", x(z.t0)).attr("y1", 16).attr("y2", h - 18).attr("stroke", C.text2).attr("stroke-width", 1));
+  const rib = (arr, colors, y0, hh, delay) => SG.forEach(gg => {
+    const lab = arr(gg);
+    for (let i = 0; i < gg.t.length - 1; i++) { const c = colors(lab[i]); if (!c) continue;
+      s.append("rect").attr("x", x(gg.t[i])).attr("width", Math.max(.6, x(gg.t[i + 1]) - x(gg.t[i]) + .3)).attr("y", y0).attr("height", hh).attr("fill", c).attr("opacity", 0)
+        .transition().delay(delay + 600 * (gg.t[i] - tExt[0]) / (tExt[1] - tExt[0])).duration(200).attr("opacity", 1); }
+  });
+  if (ribbonRaw) rib(ribbonRaw.get, ribbonRaw.col, h - 2, 14, 0);
+  if (ribbon) rib(ribbon.get, ribbon.col, h + (ribbonRaw ? 18 : 0), 16, ribbonRaw ? 700 : 0);
+  if (ribbonRaw) s.append("text").attr("x", 42).attr("y", h + 9).attr("text-anchor", "end").attr("font-size", 9.5).attr("fill", C.muted).text(ribbonRaw.label);
+  if (ribbon) s.append("text").attr("x", 42).attr("y", h + (ribbonRaw ? 18 : 0) + 12).attr("text-anchor", "end").attr("font-size", 9.5).attr("fill", C.muted).text(ribbon.label);
+  if (extra) extra(s, x, y, g);
+  return { s, x, y };
+}
+function ribbonPanel(title, rows) {
+  const { s, w } = panelSvg(22 + rows.length * 22 + 22), x = d3.scaleLinear(tExt, [46, w - 6]);
+  s.append("text").attr("x", 46).attr("y", 12).attr("font-size", 11.5).attr("font-weight", 650).attr("fill", C.text).text(title);
+  rows.forEach((r, k) => {
+    const y0 = 20 + k * 22;
+    s.append("rect").attr("x", 46).attr("width", w - 52).attr("y", y0).attr("height", 18).attr("rx", 3).attr("fill", C.surface2);
+    s.append("text").attr("x", 42).attr("y", y0 + 13).attr("text-anchor", "end").attr("font-size", 10).attr("fill", C.muted).text(r.label);
+    SG.forEach(gg => { const lab = r.get(gg);
+      for (let i = 0; i < gg.t.length - 1; i++) { const c = r.col(lab[i]); if (!c) continue;
+        s.append("rect").attr("x", x(gg.t[i])).attr("width", Math.max(.6, x(gg.t[i + 1]) - x(gg.t[i]) + .3)).attr("y", y0).attr("height", 18).attr("fill", c).attr("opacity", 0)
+          .transition().delay(r.delay + 600 * (gg.t[i] - tExt[0]) / (tExt[1] - tExt[0])).duration(200).attr("opacity", 1); } });
+  });
+  s.append("g").attr("class", "axis").attr("transform", `translate(0,${22 + rows.length * 22})`).call(d3.axisBottom(x).ticks(6).tickFormat(v => fmt.t(v)));
+}
+const sideNote = html => side.append(el("p", { class: "muted", style: "margin:2px 0 10px", }, ...[(() => { const sp = el("span"); sp.innerHTML = html; return sp; })()]));
+const legItems = items => side.append(el("div", { class: "mlegend", style: "position:static;margin:4px 0 10px;background:transparent;border:0;padding:0" }, ...items.map(([c, t]) => el("span", {}, el("i", { style: `background:${c};border-radius:2px` }), t))));
+const rawT = g => g.trk_raw, smT = g => g.trk_sm;
+
+const SIDE = {
+  raw() {
+    const { s, w } = panelSvg(150);
+    const dts = d3.pairs(PT.t).map(([a, b]) => b - a).filter(v => v > 0 && v < 60);
+    const x = d3.scaleLinear([0, Math.min(15, d3.max(dts))], [40, w - 8]), bins = d3.bin().domain(x.domain()).thresholds(30)(dts);
+    const y = d3.scaleLinear([0, d3.max(bins, b => b.length)], [125, 18]);
+    s.append("text").attr("x", 40).attr("y", 11).attr("font-size", 11.5).attr("font-weight", 650).attr("fill", C.text).text("time between consecutive reports");
+    s.selectAll("rect").data(bins).join("rect").attr("x", b => x(b.x0) + 1).attr("width", b => Math.max(0, x(b.x1) - x(b.x0) - 2)).attr("y", 125).attr("height", 0).attr("rx", 2).attr("fill", C.text2)
+      .transition().duration(700).attr("y", b => y(b.length)).attr("height", b => 125 - y(b.length));
+    s.append("g").attr("class", "axis").attr("transform", "translate(0,125)").call(d3.axisBottom(x).ticks(8).tickFormat(v => v + "s"));
+    sideNote(`Median ${d3.median(dts).toFixed(1)} s between reports, with a long tail of dropouts. That irregularity is kept all the way to the model.`);
+    const dots = key => (s2, x, y, g) => g.selectAll("circle").data(d3.range(NPT).filter(i => PT[key][i] != null)).join("circle")
+      .attr("cx", i => x(PT.t[i])).attr("cy", i => y(PT[key][i])).attr("r", 0).attr("fill", C.text2)
+      .transition().delay(i => 2600 * (PT.t[i] - tExt[0]) / (tExt[1] - tExt[0])).duration(150).attr("r", 1.5);
+    tsPanel({ title: "altitude (ft)", xdom: tExt, noSG: true, vals: PT.alt_ft.filter(v => v != null), extra: dots("alt_ft") });
+    tsPanel({ title: "ground speed (kt)", xdom: tExt, noSG: true, vals: PT.gs_kt.filter(v => v != null), extra: dots("gs_kt") });
+  },
+  phase() {
+    const c = S.counts, { s, w } = panelSvg(120);
+    const rows = [["raw samples (whole day, this aircraft)", c.raw], ["complete (no missing field)", c.complete], ["airborne", c.airborne]];
+    const x = d3.scaleLinear([0, c.raw], [0, w - 200]);
+    rows.forEach(([t, v], i) => { s.append("text").attr("x", 0).attr("y", 22 + i * 32).attr("font-size", 11.5).attr("fill", C.text2).text(t);
+      s.append("rect").attr("x", 0).attr("y", 28 + i * 32).attr("height", 10).attr("rx", 4).attr("fill", C.text2).attr("width", 0).transition().delay(i * 250).duration(600).attr("width", x(v));
+      s.append("text").attr("x", x(v) + 6).attr("y", 37 + i * 32).attr("font-size", 11).attr("class", "mono").attr("fill", C.text).text(v.toLocaleString()); });
+    tsPanel({ title: "altitude (ft), coloured by phase · hollow = dropped", h: 170, noSG: true, vals: PT.alt_ft.filter(v => v != null), xdom: tExt,
+      extra: (s2, x, y, g) => { g.selectAll("circle").data(d3.range(NPT).filter(i => PT.alt_ft[i] != null)).join("circle").attr("cx", i => x(PT.t[i])).attr("cy", i => y(PT.alt_ft[i])).attr("r", 1.8)
+        .attr("fill", i => PT.status[i] === "kept" ? PHASE[PT.phase[i]] : "none").attr("stroke", i => PT.status[i] === "kept" ? "none" : C.muted); } });
+    legItems(Object.entries(PHASE).map(([k, v]) => [v, k.replace("_", " ")]));
+  },
+  gaps() {
+    const gaps = [];
+    for (let i = 1; i < SG.length; i++) gaps.push([SG[i - 1].t[SG[i - 1].t.length - 1], SG[i].t[0]]);
+    tsPanel({ title: "altitude (ft) · each colour band is one contiguous track", h: 180, getRaw: g => g.alt_raw, xdom: tExt,
+      extra: (s, x, y, g) => { SG.forEach((gg, k) => g.insert("rect", ":first-child").attr("x", x(gg.t[0])).attr("width", x(gg.t[gg.t.length - 1]) - x(gg.t[0])).attr("y", 16).attr("height", 146).attr("fill", rgba(k % 2 ? C.oracle : C.belief, .08)));
+        gaps.forEach(([a, b]) => { g.append("rect").attr("x", x(a)).attr("width", Math.max(2, x(b) - x(a))).attr("y", 16).attr("height", 146).attr("fill", "url(#hatch)");
+          s.append("text").attr("x", (x(a) + x(b)) / 2).attr("y", 28).attr("text-anchor", "middle").attr("font-size", 10).attr("fill", C.text2).text(`gap ${(b - a).toFixed(0)} s`); });
+        const pat = s.append("defs").append("pattern").attr("id", "hatch").attr("width", 6).attr("height", 6).attr("patternUnits", "userSpaceOnUse").attr("patternTransform", "rotate(45)");
+        pat.append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6).attr("stroke", C.muted).attr("stroke-width", 2); } });
+    sideNote(gaps.length ? `${gaps.length} coverage gap(s) longer than ${PR.max_gap_s} s split this stretch into ${SG.length} tracks. Segments never cross a gap.` : `No gap exceeds ${PR.max_gap_s} s here, so this stretch is one contiguous track.`);
+  },
+  smooth() {
+    tsPanel({ title: "track (°, unwrapped): raw dots, smoothed line", getRaw: rawT, getSm: smT });
+    tsPanel({ title: "altitude (ft)", getRaw: g => g.alt_raw, getSm: g => g.alt_sm });
+    tsPanel({ title: "ground speed (kt)", getRaw: g => g.vel_raw, getSm: g => g.vel_sm });
+  },
+  rates() {
+    tsPanel({ title: "turn rate (°/s)", getSm: g => g.turn_rate, band: PR.turn_rate_th, unit: "°/s", ribbon: { get: g => g.lateral, col: v => LAT[v], label: "lat" } });
+    tsPanel({ title: "vertical speed (m/s)", getSm: g => g.vspeed, band: PR.vs_th, unit: "m/s", ribbon: { get: g => g.vertical, col: v => VERT[v], label: "vert" } });
+    tsPanel({ title: "acceleration (m/s²)", getSm: g => g.accel, band: PR.accel_th, unit: "m/s²", ribbon: { get: g => g.speed, col: v => SPD[v], label: "spd" } });
+    legItems([[C.accent, "left"], [C.belief, "right"], [C.oracle, "climb"], [C.point, "descend"], ["#eda100", "accelerate"], ["#e87ba4", "decelerate"]]);
+  },
+  merge() {
+    const part = k => v => { const p = v.split("|"); return k === 0 ? LAT[p[0]] : k === 1 ? VERT[p[1]] : SPD[p[2]]; };
+    ["lateral", "vertical", "speed"].forEach((nm, k) => ribbonPanel(`${nm} label`, [
+      { label: "before", get: g => g.raw_state, col: part(k), delay: 0 }, { label: "after", get: g => g.state, col: part(k), delay: 800 }]));
+    let flips = 0, runs = 0; SG.forEach(g => { for (let i = 1; i < g.t.length; i++) { if (g.raw_state[i] !== g.raw_state[i - 1]) flips++; if (g.state[i] !== g.state[i - 1]) runs++; } });
+    sideNote(`<b>${flips}</b> label changes before merging, <b>${runs}</b> after. Every flicker shorter than ${PR.min_seg_s} s is absorbed into its neighbour, which is what stops jitter from becoming a fake clearance.`);
+    legItems([[C.accent, "left"], [C.belief, "right"], [C.oracle, "climb"], [C.point, "descend"], ["#eda100", "accelerate"], ["#e87ba4", "decelerate"]]);
+  },
+  segments() {
+    tsPanel({ title: "altitude (ft) · shaded = maneuver segment, line = onset", getSm: g => g.alt_sm, segShade: true, onsets: true, h: 150 });
+    tsPanel({ title: "track (°)", getSm: smT, segShade: true, onsets: true, h: 130 });
+    const tb = el("div", { style: "font-size:12px" });
+    SEG.filter(s => s.in_leg).forEach(s => tb.append(el("div", { style: `display:grid;grid-template-columns:44px 1fr 70px;gap:6px;padding:3px 0;border-bottom:1px solid var(--border);${s.is_maneuver ? "" : "color:var(--muted)"}` },
+      el("span", { class: "mono" }, `#${s.seg_idx}`), el("span", {}, [s.lateral !== "S" ? `turn ${s.lateral} ${Math.abs(s.turn_deg).toFixed(0)}°` : null, s.vertical !== "level" ? `${s.vertical} ${fmt.n(s.alt_entry_ft)}→${fmt.n(s.alt_exit_ft)}` : null,
+        s.speed !== "const" ? `${s.speed} ${s.spd_entry_kt}→${s.spd_exit_kt} kt` : null].filter(Boolean).join(" · ") || "steady"), el("span", { class: "mono muted", style: "text-align:right" }, `${s.duration_s.toFixed(0)} s`))));
+    side.append(tb);
+  },
+  async phrase() {
+    sideNote("Exit value → rounded the way it would be issued → spoken. The rounding happens here, so phraseology rounding is never mistaken for recognition error later.");
+    for (const s of SEG.filter(z => z.in_leg && z.is_maneuver)) {
+      const parts = [];
+      if (s.lateral !== "S") { const r = Math.round(s.hdg_exit / 5) * 5 % 360 || 360; parts.push(`hdg exit <b>${s.hdg_exit.toFixed(1)}°</b> → ${String(r).padStart(3, "0")}`); }
+      if (s.vertical !== "level") { const a = Math.max(Math.round(s.alt_exit_ft / 1000), 1) * 1000; parts.push(`alt exit <b>${fmt.n(s.alt_exit_ft)} ft</b> → ${a >= 18000 ? "FL" + a / 100 : fmt.n(a)}`); }
+      if (s.speed !== "const") parts.push(`spd exit <b>${s.spd_exit_kt} kt</b> → ${Math.round(s.spd_exit_kt / 10) * 10}`);
+      const card = el("div", { class: "phrase" + (s.is_focus ? " focus" : "") }, el("div", { class: "chain" }, `#${s.seg_idx} · t+${fmt.t(s.t0)}`),
+        el("div", { class: "chain", html: true }), el("div", { style: "font-weight:600;margin-top:3px" }, s.readable || ""), el("div", { class: "say" }, `“${s.spoken}”`));
+      card.children[1].innerHTML = parts.join(" &nbsp;·&nbsp; ");
+      side.append(card); await sleep(30); card.classList.add("in");
+      if (STEPS[step].id !== "phrase") return;
+      await sleep(260);
+    }
+  },
+  legs() {
+    const L = S.legs, { s, w } = panelSvg(110 + L.length * 0);
+    const x = d3.scaleLinear([d3.min(L, l => l.t0), d3.max(L, l => l.t1)], [10, w - 10]);
+    s.append("text").attr("x", 10).attr("y", 12).attr("font-size", 11.5).attr("font-weight", 650).attr("fill", C.text).text(`${S.callsign} on ${S.day}: every leg`);
+    L.forEach((l, i) => { const on = l.leg_id === S.leg_id;
+      s.append("rect").attr("x", x(l.t0)).attr("y", 30).attr("height", 34).attr("rx", 6).attr("width", 0).attr("fill", on ? C.text : C.surface3).attr("stroke", C.border)
+        .transition().delay(i * 120).duration(500).attr("width", Math.max(3, x(l.t1) - x(l.t0)));
+      s.append("text").attr("x", x(l.t0) + 4).attr("y", 80).attr("font-size", 10.5).attr("class", "mono").attr("fill", on ? C.text : C.muted).text(`L${l.leg_id.split("_L").pop()} · ${l.n_man}/${l.n}`); });
+    s.append("text").attr("x", 10).attr("y", 102).attr("font-size", 10.5).attr("fill", C.muted).text(`gaps over ${PR.leg_gap_s} s start a new leg · labels: maneuvers / segments`);
+    const tb = el("div", { style: "margin-top:8px" });
+    tb.append(el("div", { class: "label" }, "this leg, in order: clearances at maneuver onsets, nothing between"));
+    SEG.filter(z => z.in_leg).forEach(z => tb.append(el("div", { style: "display:grid;grid-template-columns:50px 1fr;gap:6px;padding:2px 0;font-size:12px" }, el("span", { class: "mono muted" }, `seg ${z.seg_idx}`),
+      el("span", { class: z.is_maneuver ? "" : "muted" }, z.is_maneuver ? z.readable : "— steady, no clearance —"))));
+    side.append(tb);
+  },
+  window() {
+    const xdom = [W.onset - 45, W.onset + 72];
+    const extra = key => (s, x, y, g) => {
+      const tt = W.past_t.map(t => W.onset + t), pa = key === "alt" ? W.past_alt : null;
+      g.append("rect").attr("x", x(W.onset - W.P_window_s)).attr("width", x(W.onset) - x(W.onset - W.P_window_s)).attr("y", 16).attr("height", 120).attr("fill", rgba(C.text2, .08));
+      g.append("rect").attr("x", x(W.onset)).attr("width", x(W.onset + W.H) - x(W.onset)).attr("y", 16).attr("height", 120).attr("fill", rgba(C.belief, .07));
+      if (W.next_onset != null && W.next_onset < W.onset + W.H) { g.append("line").attr("x1", x(W.next_onset)).attr("x2", x(W.next_onset)).attr("y1", 16).attr("y2", 136).attr("stroke", C.point).attr("stroke-width", 2);
+        s.append("text").attr("x", x(W.next_onset) + 4).attr("y", 26).attr("font-size", 10).attr("fill", C.text2).text("next onset: future cut here"); }
+      g.append("line").attr("x1", x(W.onset)).attr("x2", x(W.onset)).attr("y1", 16).attr("y2", 136).attr("stroke", C.oracle).attr("stroke-width", 2.5);
+      if (pa) {
+        g.selectAll("circle.p").data(tt).join("circle").attr("cx", t => x(t)).attr("cy", (t, i) => y(pa[i])).attr("r", 3.4).attr("fill", C.text);
+        g.selectAll("circle.f").data(W.fut_alt).join("circle").attr("cx", (v, i) => x(W.onset + i)).attr("cy", v => y(v)).attr("r", 2.6)
+          .attr("fill", (v, i) => W.fut_mask[i] ? C.belief : "none").attr("stroke", (v, i) => W.fut_mask[i] ? "none" : C.muted);
+      }
+    };
+    tsPanel({ title: "altitude (ft): past tokens · onset · future grid", getSm: g => g.alt_sm, xdom, h: 150, rawAlpha: 0, extra: extra("alt") });
+    const cuts = [["Split by leg", `the whole leg is on one side of the train/validation split.`], ["Past strictly before onset", `${W.past_t.length} raw samples in [onset − ${W.P_window_s} s, onset), so the maneuver cannot be read off the past.`],
+      ["Future truncated at the next onset", W.next_onset != null && W.next_onset < W.onset + W.H ? `the next maneuver starts at +${(W.next_onset - W.onset).toFixed(0)} s; steps after it are masked.` : `no maneuver follows within ${W.H} s, so the full horizon is used where coverage allows.`]];
+    cuts.forEach(([a, b]) => side.append(el("div", { class: "cut" }, el("span", { class: "ok" }, "✓"), el("div", {}, el("b", {}, a), " — ", b))));
+    const dv = W.directive, nm = ["has_turn", "right", "sin ψ", "cos ψ", "has_vert", "climb", "alt/45k", "has_spd", "accel", "spd/600"];
+    side.append(el("div", { class: "label", style: "margin-top:10px" }, "the clearance as Stage 2 sees it: directive vector δ"));
+    const row = el("div", { style: "display:grid;grid-template-columns:repeat(10,1fr);gap:3px;margin-top:4px" });
+    dv.forEach((v, i) => row.append(el("div", { style: `text-align:center;padding:5px 2px;border-radius:6px;background:${divColor(v)};font-size:10.5px` }, el("div", { class: "mono", style: "font-weight:600;color:var(--text)" }, v.toFixed(2)), el("div", { class: "muted", style: "font-size:9.5px" }, nm[i]))));
+    side.append(row);
+  },
+  async observe() {
+    const f = SEG.find(s => s.is_focus);
+    side.append(el("div", { class: "label" }, "issued (clean)"), el("div", { class: "mono", style: "font-size:13px;margin:3px 0 10px" }, f ? `“${f.spoken}”` : ""));
+    side.append(el("div", { class: "label" }, S.obs_mode === "clean" ? "clean observation, wrapped in radio context" : "what the recognizer might hear: independent draws"));
+    for (const [n, d] of S.draws.entries()) {
+      if (STEPS[step].id !== "observe") return;
+      const tx = el("div", { class: "mono", style: "font-size:12.5px;min-height:1.3em" }), toks = el("div", { style: "margin-top:4px" });
+      const card = el("div", { class: "phrase in", style: "opacity:1" }, el("div", { class: "chain" }, `draw ${n + 1} · confidence ${d.confidence.toFixed(2)}${d.corrupted ? " · " + d.corrupted.replaceAll("|", ", ") : ""}`), tx, toks);
+      side.append(card);
+      for (let i = 0; i <= d.text.length; i += 2) { tx.textContent = d.text.slice(0, i); await sleep(12); }
+      tx.textContent = d.text;
+      d.tokens.forEach((t, i) => setTimeout(() => toks.append(el("span", { class: "tok" }, t)), i * 25));
+      await sleep(300 + d.tokens.length * 25);
+    }
+    sideNote("Each of these, paired with the clean clearance as its label, is one Stage-1 training example. The (window, clearance) pair from the previous step is the Stage-2 example.");
+  },
+};
+
+// ---------------------------------------------------------------------- navigation
+function go(i) {
+  step = Math.max(0, Math.min(STEPS.length - 1, i));
+  const id = STEPS[step].id;
+  caption(); side.innerHTML = "";
+  mapMode = id;
+  if (id === "raw") { reveal = tExt[0]; tween("reveal", 2600, x => { reveal = tExt[0] + (tExt[1] - tExt[0]) * x; drawMap(); }); }
+  else reveal = Infinity;
+  if (id === "window" || id === "observe") zoomTo([...W.past_lon, ...W.fut_lon, W.lon0], [...W.past_lat, ...W.fut_lat, W.lat0], 70);
+  else if (id === "raw" || id === "legs") zoomTo(lonE, latE, 40);
+  drawMap();
+  SIDE[id]();
+}
+$("#prev").onclick = () => { playing = false; go(step - 1); };
+$("#next").onclick = () => { playing = false; go(step + 1); };
+$("#auto").onclick = async () => {
+  if (playing) { playing = false; $("#auto").textContent = "▶ Play all"; return; }
+  playing = true; $("#auto").textContent = "❚❚ Pause";
+  for (let i = step; i < STEPS.length && playing; i++) { go(i); await sleep(STEPS[i].id === "phrase" || STEPS[i].id === "observe" ? 6500 : 5200); }
+  playing = false; $("#auto").textContent = "▶ Play all";
+};
+addEventListener("keydown", ev => { if (ev.key === "ArrowRight") go(step + 1); if (ev.key === "ArrowLeft") go(step - 1); });
+go(0);
+// a component rendered in a hidden tab starts at zero width; redraw once it has a real size
+let _rw = innerWidth;
+addEventListener("resize", () => { if (Math.abs(innerWidth - _rw) > 20) { _rw = innerWidth; location.reload(); } });
+</script>
+</body>
+</html>

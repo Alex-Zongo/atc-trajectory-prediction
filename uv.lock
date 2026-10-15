@@ -138,6 +138,7 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "faster-whisper" },
+    { name = "plotly" },
     { name = "pyopensky" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -147,6 +148,7 @@ all = [
     { name = "wandb" },
 ]
 app = [
+    { name = "plotly" },
     { name = "streamlit" },
 ]
 asr = [
@@ -172,6 +174,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.0" },
+    { name = "plotly", marker = "extra == 'app'", specifier = ">=5.24" },
     { name = "pyarrow", specifier = ">=15.0" },
     { name = "pyopensky", marker = "extra == 'collect'", specifier = ">=2.16" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
@@ -179,7 +182,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy", specifier = ">=1.11" },
     { name = "srt", marker = "extra == 'asr'", specifier = ">=3.5" },
-    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.30" },
+    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.46" },
     { name = "torch", specifier = ">=2.2" },
     { name = "tqdm", specifier = ">=4.66" },
     { name = "wandb", marker = "extra == 'track'", specifier = ">=0.17" },
@@ -2400,6 +2403,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/80/a8/66d45abadff219e36e2a824181b8f6a67e7ed4572934d6252c71c29d5731/platformdirs-4.13.0.tar.gz", hash = "sha256:1aa0b0d3f224c1f07c295121e312a5a24a180d6ae5a8425ea1784b3e3863e9c0", size = 61094, upload-time = "2026-10-11T02:05:24.109Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8d/15/1633010b26e88e872c93b67c0b6c5e174fb74cb6fb5c1472b4d51d4a8f22/platformdirs-4.13.0-py3-none-any.whl", hash = "sha256:3dbcf4cd708f21cf876c4eaa90e58412bc4f033d87143f41b1493ff77c25b7e1", size = 32724, upload-time = "2026-10-11T02:05:22.776Z" },
+]
+
+[[package]]
+name = "plotly"
+version = "7.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "narwhals" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/49/c3/72b369f5ed7701b04ab0ea3dcf83e9bbce71c0b3bc6f07f87568550d09ea/plotly-7.1.0.tar.gz", hash = "sha256:f860166a4a3d78c69cb1f4a15f28a5c8283eade98a282a698f3bb853a449ace5", size = 6689315, upload-time = "2026-09-15T19:21:21.75Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/7d/905a3a3d51087515719058c94cfbda2ff0fc14417c20d557ae3e82d8b250/plotly-7.1.0-py3-none-any.whl", hash = "sha256:dbb7fa18afce40d0a8e80d1bf162eceb3faa0ce5a77fe741ad09a74cf78f53f3", size = 9692368, upload-time = "2026-09-15T19:21:18.331Z" },
 ]
 
 [[package]]

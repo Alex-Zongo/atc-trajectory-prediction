@@ -1,7 +1,7 @@
 # Trajectory forecasting under ATC clearance uncertainty
 
 Two-stage aircraft trajectory forecasting that keeps the uncertainty about *what the
-aircraft was told to do* instead of committing to one guess:
+aircraft was told to do* (which accuracy might be loss in transcription) instead of committing to one guess:
 
 ```
 stage 1   q(delta | u, kappa, s)    noisy transcript -> distribution over the clearance
@@ -14,7 +14,7 @@ plus the airframe, and `tau` the future control sequence.
 
 The question the design exists to answer: **does preserving uncertainty over what an
 aircraft was instructed to do produce more reliable forecasts than committing to one
-inferred clearance, and at what cost?** The `evaluation.compose` experiment answers it
+inferred clearance, and at what cost? It also tries to isolate and analyse uncertainties coming for both transcription and how an instruction is actualy excuted by the aircraft.** The `evaluation.compose` experiment answers it
 directly by scoring four conditions on identical held-out windows: the true clearance
 (ceiling), no clearance (past-only baseline), Stage 1's single MAP clearance (`point`), and
 k clearances sampled from Stage 1's posterior (`belief`).
@@ -35,7 +35,7 @@ dependencies, so everyone gets the same versions:
 
 ```bash
 uv sync --all-extras               # creates .venv from the lock
-uv run pytest                      # 10 tests, no data or network needed
+uv run pytest                      # 17 tests, no data or network needed
 ```
 
 `uv run <cmd>` uses that environment without activating anything, so every command below
@@ -69,6 +69,8 @@ data/dataset/meta_grounded.parquet   the same, with the onset state joined on
 data/windows_raw/windows.npz         Stage-2 windows
 data/windows_raw/windows_meta.parquet
 data/cache/aircraftDatabase.csv      optional; avoids re-downloading ~95 MB
+data/adsb/adsb_<day>.parquet         raw ADS-B the windows were cut from; the viewer reads it
+                                     for the basemap, the flight replay and the dataset page
 ```
 
 `meta_grounded.parquet` is derived, so it can always be regenerated:
@@ -80,9 +82,9 @@ attach_onset_state(pd.read_parquet("data/dataset/meta.parquet"), "data/windows_r
     .to_parquet("data/dataset/meta_grounded.parquet", index=False)
 ```
 
-Checkpoints saved by earlier versions of this code load too: `load_stage1` migrates known
+<!-- Checkpoints saved by earlier versions of this code load too: `load_stage1` migrates known
 renames and drops weights from variants that were removed, and raises on anything else
-rather than loading a silently incomplete model.
+rather than loading a silently incomplete model. -->
 
 ## Pipeline
 
@@ -214,11 +216,27 @@ thing.
 ```bash
 streamlit run src/atc_forecast/app/viewer.py -- --stage1 runs/stage1.pt \
     --stage2 runs/stage2.pt --data data/windows_raw \
-    --meta data/dataset/meta.parquet --lambda-json runs/lambda.json
+    --meta data/dataset/meta_grounded.parquet --lambda-json runs/lambda.json \
+    --adsb "data/adsb/adsb_*.parquet"
 ```
 
-Pick a window and see the transcript the channel produced, the clearance posterior Stage 1
-inferred from it, and the trajectory distribution under each condition, with metrics.
+One sidebar picks the case (a held-out window, filterable by clause and leg type), how its
+clearance is observed (**clean**, through the **ASR channel**, or **custom** text) and how the
+models sample. Four pages then look at that case:
+
+| page | what it shows |
+|---|---|
+| Forecast | the clearance posterior, then the trajectory distribution per condition: a plan view on the real airspace (airports, runways, navaids), heading / altitude / speed profiles with the commanded and decoded targets drawn on the axis they command, and a 3-D view with ground speed as an optional colour channel |
+| Flight replay | a whole held-out leg flown back on a 3-D map: at each clearance the transcript is heard, Stage 1 decodes it, and Stage 2's forecast fans out ahead while the aircraft flies its recorded path through it |
+| Inside the models | both architectures traced on the current input, block by block: tokens, per-head attention, slot reads, each autoregressive field's distribution and draw, the flow integrating from noise, DiT cross-attention into the past and the clearance |
+| How the data is built | the dataset pipeline replayed on this leg's raw ADS-B, from samples to segments to clearances to the stored window and its channel transcripts |
+
+The model traces replay each forward pass one operation at a time and check themselves
+against the model's own forward and sampler before display, so what is drawn is what the
+checkpoint computes. `--adsb` points at the raw day files the windows were cut from; without
+it the plan view falls back to nautical miles about the onset and the replay and dataset
+pages are unavailable. Basemap tiles (Esri) and the JavaScript libraries load from public
+CDNs, and the airport features are downloaded once into `data/cache/ourairports/`.
 
 ### Optional: real audio
 
@@ -253,7 +271,8 @@ src/atc_forecast/
   training/           stage1.py, stage2.py
   evaluation/         scores.py, stage1.py, stage2.py, compose.py
   asr/                transcribe.py
-  app/                viewer.py
+  app/                viewer.py (pages), forecast/introspect/replay/story (backends),
+                      plots.py, web/ (interactive components)
 scripts/build_dataset.py
 tests/
 ```
