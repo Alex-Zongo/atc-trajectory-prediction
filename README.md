@@ -1,30 +1,19 @@
 # Aircraft trajectory prediction under ATC instruction uncertainty
 
-Predicting where an aircraft will be in the next minute when the instruction it was given
-is known only through an imperfect speech transcript.
+Predicting where an aircraft will be in the next minute when the instruction it was given is known only through an imperfect speech transcript.
 
 ## Why trajectory prediction
 
-Air traffic control (ATC) depends on knowing where aircraft are going: conflict detection,
-arrival sequencing and separation assurance all rest on a prediction of each aircraft's
-near-term trajectory. Over a horizon of a minute or two, that trajectory is driven mostly
-by the controller's instructions — *turn left heading 270*, *descend and maintain 5,000*,
-*reduce speed to 210 knots*. An instruction is the strongest single cue to what an aircraft
-is about to do, often well before the change shows up on surveillance.
+Air traffic control (ATC) depends on knowing where aircraft are going: conflict detection, arrival sequencing and separation assurance all rest on a prediction of each aircraft's near-term trajectory. 
+Over a horizon of a minute or two, that trajectory can be driven
+by the controller's instructions — *turn left heading 270*, *descend and maintain 5,000*, *reduce speed to 210 knots*. An instruction, here, is the strongest single cue to what an aircraft is about to do, often well before the change shows up on surveillance.
 
 ## What a predictor has to work with
 
-- **Surveillance.** ADS-B reports give the aircraft's past positions, altitude, speed and
-  track. They show a maneuver only once it has started.
-- **Voice instructions.** Controllers and pilots talk over the radio, so instructions are
-  not available as structured data. A ground system learns them through **automatic speech
-  recognition (ASR)**, which is itself a learned model and therefore error-prone: it
-  confuses digits (*five* and *niner*), drops words, swaps *climb* and *descend*, and can
-  output a fluent instruction that was never said.
+- **Surveillance.** ADS-B reports give the aircraft's past positions, altitude, speed and track. They show a maneuver only once it has started.
+- **Voice instructions.** Controllers and pilots talk over the radio, so instructions are not available as structured data. A ground system learns them through **automatic speech recognition (ASR)**, which is itself a learned model and therefore error-prone: it confuses digits (*five* and *niner*), drops words, swaps *climb* and *descend*, and can output a fluent instruction that was never said.
 
-A predictor that takes the transcript at face value inherits those errors without knowing
-it. This project keeps track of how uncertain the instruction is and carries that
-uncertainty into the predicted trajectory.
+A predictor that takes the transcript at face value inherits those errors without knowing it. This project keeps track of how uncertain the instruction is and carries that uncertainty into the predicted trajectory.
 
 ## Approach: two stages
 
@@ -35,25 +24,13 @@ past trajectory + aircraft type ────────────────
                                      Stage 2: trajectory predictor  ─► possible trajectories
 ```
 
-- **Stage 1** reads a noisy transcript and returns a probability distribution over what
-  the instruction could have been: which heading, altitude and speed changes, in which
-  direction, to which values.
-- **Stage 2** takes one instruction, the aircraft's recent trajectory and its type, and
-  returns a distribution of trajectories for the next 60 seconds.
+- **Stage 1** reads a noisy transcript and returns a probability distribution over what the instruction could have been: which heading, altitude and speed changes, in which direction, to which values.
+- **Stage 2** takes one instruction, the aircraft's recent trajectory and its type, and returns a distribution of trajectories for the next 60 seconds. Keeping the stages separate is deliberate:
 
-Keeping the stages separate is deliberate:
+- **Each source of uncertainty can be studied on its own.** Stage 1 isolates what the transcription adds: how sure can we be about what was said? Stage 2 isolates what remains even when the instruction is transcribed perfectly: pilot response time, turn and climb rates, wind and aircraft performance all spread the trajectory. Feeding Stage 2 the true instruction measures that part alone.
+- **Each stage can be replaced independently.** A different recognizer, a different instruction decoder or a different trajectory model can be swapped in and evaluated without retraining the rest.
 
-- **Each source of uncertainty can be studied on its own.** Stage 1 isolates what the
-  transcription adds: how sure can we be about what was said? Stage 2 isolates what
-  remains even when the instruction is transcribed perfectly: pilot response time, turn and
-  climb rates, wind and aircraft performance all spread the trajectory. Feeding Stage 2
-  the true instruction measures that part alone.
-- **Each stage can be replaced independently.** A different recognizer, a different
-  instruction decoder or a different trajectory model can be swapped in and evaluated
-  without retraining the rest.
-
-Combined, the question becomes: **is it better to predict from the full set of plausible
-instructions than from a single best guess, and what does it cost?**
+Combined, the question becomes: **is it better to predict from the full set of plausible instructions than from a single best guess, and what does it cost?**
 
 ## The main experiment
 
@@ -66,16 +43,12 @@ Every held-out case is predicted four ways:
 | single best guess (`point`) | Stage 1's most likely instruction |
 | full distribution (`belief`) | several instructions sampled from Stage 1 |
 
-Average distance error alone cannot settle this comparison: it favours a confident
-prediction whether or not that confidence is justified. Predictions are therefore also
-scored on whether their spread is honest:
+Average distance error alone cannot settle this comparison: it favours a confident prediction whether or not that confidence is justified. Predictions are therefore also scored on whether their spread is honest:
 
 - **energy score** — a single score for the whole set of predicted trajectories, lower is
   better; it rewards being close *and* appropriately spread.
-- **endpoint log-density** — how plausible the true final position is under the
-  prediction, higher is better.
-- **80% coverage** — how often the true position falls inside the 80% prediction region;
-  a well-calibrated predictor scores about 0.80.
+- **endpoint log-density** — how plausible the true final position is under the prediction, higher is better.
+- **80% coverage** — how often the true position falls inside the 80% prediction region; a well-calibrated predictor scores about 0.80.
 
 Current result on 3,149 held-out cases, with transcripts from a simulated recognizer:
 
@@ -86,10 +59,7 @@ Current result on 3,149 held-out cases, with transcripts from a simulated recogn
 | single best guess | 0.160 | **0.60** | 0.126 | **−3.95** |
 | full distribution | 0.174 | 0.77 | **0.110** | 1.94 |
 
-The single best guess has the lower average error but is overconfident: it covers the
-truth only 60% of the time and scores no better than ignoring the instruction. Keeping the
-full distribution gives the best energy score of the realistic conditions, at a small cost
-in average error.
+The single best guess has the lower average error but is overconfident: it covers the truth only 60% of the time and scores no better than ignoring the instruction. Keeping the full distribution gives the best energy score of the realistic conditions, at a small cost in average error.
 
 ## Install
 
@@ -169,9 +139,7 @@ python scripts/build_dataset.py --adsb "data/adsb/adsb_*.parquet" --out data/dat
 Real ADS-B does not come with the instructions that were issued, so they are
 reconstructed. Each track is cut into **maneuvers** wherever its heading, altitude or speed
 starts to change, and each maneuver gets the instruction that would have produced it,
-written in FAA phraseology from the values the maneuver ends at (e.g. a left turn ending
-on 183° becomes *turn left heading one eight five*). Segments of steady flight get no
-instruction. Each maneuver start then becomes one prediction case: 30 s of past
+written in FAA phraseology from the values the maneuver ends at (e.g. a left turn ending on 183° becomes *turn left heading one eight five*). Segments of steady flight get no instruction. Each maneuver start then becomes one prediction case: 30 s of past
 trajectory, the instruction, and the next 60 s.
 
 Three rules keep training and evaluation honest:
@@ -185,11 +153,7 @@ Three rules keep training and evaluation honest:
 
 ### 3. Simulate the speech recognizer
 
-Because the instructions are reconstructed from the tracks, they are exact. To study
-transcription errors, the dataset passes each instruction through a **simulated
-recognizer** (the *observation channel*): the instruction is spoken out, then corrupted at
-rates measured on a real ATC-tuned recognizer (`channel/profiles/jacktol.json`, fitted on
-the ATCO2 corpus). This turns the noise level into something that can be set and varied.
+Because the instructions are reconstructed from the tracks, they are exact. To study transcription errors, the dataset passes each instruction through a **simulated recognizer** (the *observation channel*): the instruction is spoken out, then corrupted at rates measured on a real ATC-tuned recognizer (`channel/profiles/jacktol.json`, fitted on the ATCO2 corpus). This turns the noise level into something that can be set and varied.
 
 To fit the simulation to another recognizer, from a JSONL of
 `{reference_text, hypothesis_text, confidence_proxy}` per utterance:
