@@ -23,3 +23,6 @@ dist/
 
 # Dataset tables live under the ignored directories above, so parquet/CSV are not
 # ignored globally; that would also hide any fixture a test needs to commit.
+
+# Release assets staged by scripts/artifacts.py
+/.artifacts/
