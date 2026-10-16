@@ -83,7 +83,6 @@ repository's `data-v1` release:
 ```bash
 gh auth login                                 # once; needs access to this repository
 python scripts/artifacts.py fetch             # models + prepared dataset (~420 MB)
-python scripts/artifacts.py fetch --adsb      # also raw ADS-B (~760 MB), used by the viewer
 ```
 
 Downloads are checked against `SHA256SUMS`. Without the GitHub CLI, download the release
@@ -97,7 +96,7 @@ release with `python scripts/artifacts.py publish`.
 | `data/dataset/meta.parquet` | one row per maneuver and its instruction |
 | `data/dataset/meta_grounded.parquet` | the same, plus the aircraft state when the instruction was issued |
 | `data/windows_raw/` | prediction cases: past trajectory, instruction, recorded future |
-| `data/adsb/adsb_<day>.parquet` | raw ADS-B: the viewer's maps, flight replay and dataset walkthrough; rebuilding the dataset |
+| `data/adsb/adsb_<day>.parquet` | raw ADS-B for the viewer's maps, flight replay and dataset walkthrough, and to rebuild the dataset; not redistributed, see [step 1](#1-collect-ads-b) |
 
 ## Quick start
 
@@ -127,7 +126,7 @@ hears — the **clean** issued instruction, a **simulated recognizer** transcrip
 | How the data is built | the dataset pipeline replayed on this flight's raw ADS-B, from reports to maneuvers to instructions to prediction cases |
 
 The traces check themselves against the models' own outputs before display. The maps,
-replay and dataset pages read `data/adsb/` (`fetch --adsb`); without it the plan view
+replay and dataset pages read `data/adsb/` (collect it as in step 1); without it the plan view
 shows distances from the aircraft instead of a map. Map tiles and JavaScript libraries
 load from public CDNs.
 
@@ -287,6 +286,43 @@ Choices that matter, with the reason:
   instructions, so its reconstructed instruction is fictitious; squawk is often missing,
   so the flag has an "unknown" level and filtering is left to the user.
 
+## Citation
+
+A paper describing this work is in preparation. Until it is published, please cite the
+software (GitHub's **Cite this repository** button gives the same entry from
+`CITATION.cff`):
+
+```bibtex
+@software{zongo2026atc,
+  author  = {Zongo, Alex and Petit, Mathurin and Brusset, Louis and Kam, Jordan and
+             Torun, Emir and Ghazanfari, Mahyar and Wei, Peng and Bayen, Alexandre},
+  title   = {Aircraft Trajectory Prediction under {ATC} Instruction Uncertainty},
+  year    = {2026},
+  version = {0.1.0},
+  note    = {Software; paper in preparation}
+}
+```
+
+If you use the ADS-B data, please also cite the OpenSky Network:
+
+```bibtex
+@inproceedings{schafer2014opensky,
+  author    = {Sch{\"a}fer, Matthias and Strohmeier, Martin and Lenders, Vincent and
+               Martinovic, Ivan and Wilhelm, Matthias},
+  title     = {Bringing Up {OpenSky}: A Large-scale {ADS-B} Sensor Network for Research},
+  booktitle = {Proceedings of the 13th International Symposium on Information
+               Processing in Sensor Networks (IPSN)},
+  year      = {2014},
+  pages     = {83--94}
+}
+```
+
+## Acknowledgements
+
+This project was inspired by Louis Brusset's earlier work. Aircraft surveillance data comes
+from the [OpenSky Network](https://opensky-network.org); the simulated recognizer is fitted
+on the [ATCO2](https://www.atco2.org) corpus.
+
 ## License
 
-See `LICENSE`.
+MIT; see `LICENSE`.

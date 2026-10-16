@@ -5,11 +5,15 @@ assets of one release (by default `data-v1`) on the same repository, so anyone w
 the repository can fetch them, from any branch, with one command:
 
     python scripts/artifacts.py fetch            # weights + windows + meta (~420 MB)
-    python scripts/artifacts.py fetch --adsb     # also the raw ADS-B days (~760 MB)
 
 and the owner publishes them with
 
     python scripts/artifacts.py publish          # creates or updates the release
+
+Raw OpenSky ADS-B is NOT published by default: OpenSky's terms restrict redistributing
+it, and on a public repository every release asset is public. `publish --adsb` includes it
+for a private repository; `fetch --adsb` installs it from such a release or, with
+`--from`, from a folder shared privately.
 
 Every asset is listed in SHA256SUMS and verified after download, so a truncated download
 fails loudly instead of loading a broken checkpoint. Fetching needs the GitHub CLI (`gh`),
@@ -20,7 +24,7 @@ Bundles:
 
   runs.tar.gz       runs/stage1.pt, runs/stage2.pt, runs/lambda.json
   dataset.tar       data/dataset/meta*.parquet, data/windows_raw/*
-  adsb_<day>.parquet  raw ADS-B the windows were cut from, one asset per day (optional)
+  adsb_<day>.parquet  raw ADS-B the windows were cut from, one asset per day (opt-in)
 
 `data/cache/` is not shipped: the aircraft database and the airport features are public
 and are downloaded on first use.
@@ -73,7 +77,7 @@ def publish(a):
                 tar.add(ROOT / m, arcname=m)
         assets.append(out)
         print(f"built {name} ({out.stat().st_size / 1e6:.0f} MB)")
-    if not a.no_adsb:
+    if a.adsb:
         days = sorted(ROOT.glob(ADSB_GLOB))
         if not days:
             print(f"no raw ADS-B under {ADSB_GLOB}; publishing without it")
@@ -92,7 +96,7 @@ def publish(a):
         gh("release", "create", a.release, *map(str, assets), "--title",
            f"Trained weights and data ({a.release})", "--notes",
            "Model weights and prepared data for this repository. Install them with "
-           "`python scripts/artifacts.py fetch` (add `--adsb` for the raw ADS-B).")
+           "`python scripts/artifacts.py fetch`.")
     print(f"published {len(assets)} assets to release {a.release}")
 
 
@@ -141,7 +145,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("publish", help="pack runs/ and data/ and upload them to the release")
     p.add_argument("--release", default=RELEASE)
-    p.add_argument("--no-adsb", action="store_true", help="leave the raw ADS-B out")
+    p.add_argument("--adsb", action="store_true",
+                   help="also publish the raw ADS-B; only on a private repository")
     p.add_argument("--dry-run", action="store_true", help="build the assets, upload nothing")
     f = sub.add_parser("fetch", help="download, verify and unpack the release assets")
     f.add_argument("--release", default=RELEASE)

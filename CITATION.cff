@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: >-
+  A paper describing this work is in preparation. Until it is published, please cite
+  the software as below.
+title: "Aircraft Trajectory Prediction under ATC Instruction Uncertainty"
+type: software
+version: 0.1.0
+date-released: 2026-10-15
+license: MIT
+keywords:
+  - air traffic control
+  - trajectory prediction
+  - speech recognition
+  - uncertainty quantification
+  - ADS-B
+authors:
+  - given-names: Alex
+    family-names: Zongo
+  - given-names: Mathurin
+    family-names: Petit
+  - given-names: Louis
+    family-names: Brusset
+  - given-names: Jordan
+    family-names: Kam
+  - given-names: Emir
+    family-names: Torun
+  - given-names: Mahyar
+    family-names: Ghazanfari
+  - given-names: Peng
+    family-names: Wei
+  - given-names: Alexandre
+    family-names: Bayen
