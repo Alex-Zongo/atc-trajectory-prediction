@@ -32,6 +32,41 @@ past trajectory + aircraft type ────────────────
 
 Combined, the question becomes: **is it better to predict from the full set of plausible instructions than from a single best guess, and what does it cost?**
 
+## Data: real trajectories, reconstructed instructions
+
+The ideal dataset would pair every radio transmission with the instruction it contains and
+the trajectory the aircraft then flew. No such public corpus exists at scale, and building
+one from recordings is harder than it looks:
+
+- **Alignment.** Matching recorded audio to aircraft by callsign and time mostly picks the
+  wrong transmission. In one attempt, the matched transmission mentioned the heading the
+  aircraft went on to fly in 0.2% of cases and the altitude in 1.3%, no better than
+  chance: a pilot hears many transmissions (frequency changes, traffic, readbacks), and a
+  maneuver can follow an instruction given minutes earlier or a published procedure.
+- **Ground truth.** Measuring how transcription errors propagate requires knowing what
+  was actually said for every transcript. Real recognizer output only gives what was
+  heard; the rest needs hand annotation, and annotated ATC speech amounts to hours (the
+  recognizer simulation here is fitted on one hour of ATCO2).
+- **Scale and control.** Five days of Bay Area ADS-B give 174,046 maneuvers in 18,640
+  flight legs. Reconstructing their instructions uses all of them, and simulating the
+  recognizer makes the transcription error rate a setting that can be varied.
+
+So the data is real where it can be and reconstructed where it must be:
+
+| part | source |
+|---|---|
+| past and future trajectories | real ADS-B (OpenSky) |
+| instruction | inferred from each maneuver, written in FAA phraseology |
+| transcript | the instruction passed through a simulation of a real ATC recognizer |
+
+The reconstruction has known limits. It treats every maneuver as instructed, although
+pilot-initiated maneuvers, VFR flights (squawk is unknown for 67% of maneuvers) and
+published procedures such as SIDs, STARs and approaches look the same in ADS-B. It takes
+the value the aircraft settles on as the assigned value, places the instruction at the
+start of the maneuver with no pilot reaction time, and uses standard phraseology, which is
+more uniform than real radio speech. Testing on real speech needs a set of real
+transmissions, each labelled with the instruction it contains.
+
 ## The main experiment
 
 Every held-out case is predicted four ways:
@@ -218,10 +253,8 @@ python -m atc_forecast.asr.transcribe audio/ --out transcripts.jsonl \
 Not needed for the pipeline; useful for fitting the simulated recognizer to your own ASR.
 Use an ATC-tuned model; general-purpose ones are much worse on digits and callsigns.
 
-Real recordings matched to flights by callsign and time are not a valid test set for
-Stage 1: in one such set the matched transmission mentioned the reconstructed heading in
-0.2% of cases, because it was usually a *different* instruction. A real test set needs
-each transmission paired with the instruction it actually contains.
+Recordings matched to flights by callsign and time are not a valid Stage 1 test set; see
+[Data](#data-real-trajectories-reconstructed-instructions).
 
 ## Repository layout
 
@@ -283,6 +316,7 @@ software (GitHub's **Cite this repository** button gives the same entry from
   title   = {Aircraft Trajectory Prediction under {ATC} Instruction Uncertainty},
   year    = {2026},
   version = {0.1.0},
+  url     = {https://github.com/Alex-Zongo/atc-trajectory-prediction},
   note    = {Software; paper in preparation}
 }
 ```
