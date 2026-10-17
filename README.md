@@ -5,8 +5,7 @@ Predicting where an aircraft will be in the next minute when the instruction it 
 ## Why trajectory prediction
 
 Air traffic control (ATC) depends on knowing where aircraft are going: conflict detection, arrival sequencing and separation assurance all rest on a prediction of each aircraft's near-term trajectory. 
-Over a horizon of a minute or two, that trajectory can be driven
-by the controller's instructions — *turn left heading 270*, *descend and maintain 5,000*, *reduce speed to 210 knots*. An instruction, here, is the strongest single cue to what an aircraft is about to do, often well before the change shows up on surveillance.
+Over a horizon of a minute or two, that trajectory can be driven by the controller's instructions — *turn left heading 270*, *descend and maintain 5,000*, *reduce speed to 210 knots*. An instruction, here, is the strongest single cue to what an aircraft is about to do, often well before the change shows up on surveillance.
 
 ## What a predictor has to work with
 
@@ -43,13 +42,8 @@ one from recordings is harder than it looks:
   aircraft went on to fly in 0.2% of cases and the altitude in 1.3%, no better than
   chance: a pilot hears many transmissions (frequency changes, traffic, readbacks), and a
   maneuver can follow an instruction given minutes earlier or a published procedure.
-- **Ground truth.** Measuring how transcription errors propagate requires knowing what
-  was actually said for every transcript. Real recognizer output only gives what was
-  heard; the rest needs hand annotation, and annotated ATC speech amounts to hours (the
-  recognizer simulation here is fitted on one hour of ATCO2).
-- **Scale and control.** Five days of Bay Area ADS-B give 174,046 maneuvers in 18,640
-  flight legs. Reconstructing their instructions uses all of them, and simulating the
-  recognizer makes the transcription error rate a setting that can be varied.
+- **Ground truth.** Measuring how transcription errors propagate requires knowing what was actually said for every transcript. Real recognizer output only gives what was heard; the rest needs hand annotation, and annotated ATC speech amounts to hours (the recognizer simulation here is fitted on one hour of ATCO2).
+- **Scale and control.** Five days of Bay Area ADS-B give 174,046 maneuvers in 18,640 flight legs. Reconstructing their instructions uses all of them, and simulating the recognizer makes the transcription error rate a setting that can be varied.
 
 So the data is real where it can be and reconstructed where it must be:
 
@@ -59,13 +53,7 @@ So the data is real where it can be and reconstructed where it must be:
 | instruction | inferred from each maneuver, written in FAA phraseology |
 | transcript | the instruction passed through a simulation of a real ATC recognizer |
 
-The reconstruction has known limits. It treats every maneuver as instructed, although
-pilot-initiated maneuvers, VFR flights (squawk is unknown for 67% of maneuvers) and
-published procedures such as SIDs, STARs and approaches look the same in ADS-B. It takes
-the value the aircraft settles on as the assigned value, places the instruction at the
-start of the maneuver with no pilot reaction time, and uses standard phraseology, which is
-more uniform than real radio speech. Testing on real speech needs a set of real
-transmissions, each labelled with the instruction it contains.
+The reconstruction has known limits. It treats every maneuver as instructed, although pilot-initiated maneuvers, VFR flights (squawk is unknown for 67% of maneuvers) and published procedures such as SIDs, STARs and approaches look the same in ADS-B. It takes the value the aircraft settles on as the assigned value, places the instruction at the start of the maneuver with no pilot reaction time, and uses standard phraseology, which is more uniform than real radio speech. Testing on real speech needs a set of real transmissions, each labelled with the instruction it contains.
 
 ## The main experiment
 
@@ -160,9 +148,7 @@ were given, and the predicted trajectories under each condition.
 python -m atc_forecast.collect.opensky 2026-01-15 2026-01-16 --out-dir data/adsb
 ```
 
-Needs OpenSky historical-data access (`OPENSKY_USERNAME`, `OPENSKY_PASSWORD`). Days already
-downloaded are skipped. The default area is the San Francisco Bay Area; change
-`BAY_AREA_BBOX` in `collect/opensky.py` for another airspace.
+Needs OpenSky historical-data access (`OPENSKY_USERNAME`, `OPENSKY_PASSWORD`). Days already downloaded are skipped. The default area is the San Francisco Bay Area; change `BAY_AREA_BBOX` in `collect/opensky.py` for another airspace.
 
 ### 2. Build the dataset
 
@@ -171,10 +157,7 @@ python scripts/build_dataset.py --adsb "data/adsb/adsb_*.parquet" --out data/dat
 ```
 
 Real ADS-B does not come with the instructions that were issued, so they are
-reconstructed. Each track is cut into **maneuvers** wherever its heading, altitude or speed
-starts to change, and each maneuver gets the instruction that would have produced it,
-written in FAA phraseology from the values the maneuver ends at (e.g. a left turn ending on 183° becomes *turn left heading one eight five*). Segments of steady flight get no instruction. Each maneuver start then becomes one prediction case: 30 s of past
-trajectory, the instruction, and the next 60 s.
+reconstructed. Each track is cut into **maneuvers** wherever its heading, altitude or speed starts to change, and each maneuver gets the instruction that would have produced it, written in FAA phraseology from the values the maneuver ends at (e.g. a left turn ending on 183° becomes *turn left heading one eight five*). Segments of steady flight get no instruction. Each maneuver start then becomes one prediction case: 30 s of past trajectory, the instruction, and the next 60 s.
 
 Three rules keep training and evaluation honest:
 
@@ -234,14 +217,11 @@ python -m atc_forecast.evaluation.stage1 --model runs/stage1.pt \
 ```
 
 Stage 1 gets a **sampling temperature** (how widely it spreads over possible
-instructions). Stage 2 gets a **spread factor per look-ahead time**: one factor for the
-whole minute left predictions overconfident in the first seconds and too wide at the end.
+instructions). Stage 2 gets a **spread factor per look-ahead time**: one factor for the whole minute left predictions overconfident in the first seconds and too wide at the end.
 
 ### 6. Evaluate
 
-Run the main experiment as in the Quick start. For the full distribution, each sampled
-instruction gets its own set of trajectories, calibrated before they are pooled, so the
-result separates transcription uncertainty from execution uncertainty.
+Run the main experiment as in the Quick start. For the full distribution, each sampled instruction gets its own set of trajectories, calibrated before they are pooled, so the result separates transcription uncertainty from execution uncertainty.
 
 ### Optional: real audio
 
@@ -253,8 +233,7 @@ python -m atc_forecast.asr.transcribe audio/ --out transcripts.jsonl \
 Not needed for the pipeline; useful for fitting the simulated recognizer to your own ASR.
 Use an ATC-tuned model; general-purpose ones are much worse on digits and callsigns.
 
-Recordings matched to flights by callsign and time are not a valid Stage 1 test set; see
-[Data](#data-real-trajectories-reconstructed-instructions).
+Recordings matched to flights by callsign and time are not a valid Stage 1 test set; see [Data](#data-real-trajectories-reconstructed-instructions).
 
 ## Repository layout
 
@@ -279,34 +258,18 @@ In the code an instruction is called a **clearance** (e.g. `ClearancePosterior`,
 
 Choices that matter, with the reason:
 
-- **Stage 1 decodes an instruction one part at a time.** Presence, direction and value of
-  the turn, then of the altitude change, then of the speed change; each part sees the
-  parts before it. Sampled instructions are therefore always coherent, and Stage 1 can
-  hold genuinely different readings at once, such as *left 270* versus *right 090*.
-- **Headings are predicted over 72 bins of 5°**, not as one value with an error bar: a
-  misheard *two zero zero* can plausibly be 290, 100 or 300, and only a binned
-  distribution can represent that.
-- **Stage 1 sees the aircraft's current state.** Altitude, speed and heading let it reject
-  physically implausible readings, such as a speed far outside what the aircraft flies.
-- **Stage 2 predicts speed, heading and vertical rate, not positions.** That is what an
-  instruction commands; positions follow by integrating them. Early errors are weighted
-  more heavily because they shift every later position.
-- **Stage 2 is a flow-matching generative model.** It turns random noise into a set of
-  plausible trajectories, so it can represent several different futures, not just an
-  average path.
-- **The no-instruction condition comes from the same model.** Stage 2 is trained with the
-  instruction randomly hidden (10% of the time), which makes it its own past-only baseline.
-  Changing that rate changes the baseline every gain is measured against.
-- **Units are scaled by fixed aviation constants**, never by dataset statistics, so a
-  trained model stays valid when data is added or another airspace is used.
-- **VFR flights are flagged, not removed.** A VFR aircraft is not following ATC
-  instructions, so its reconstructed instruction is fictitious; squawk is often missing,
-  so the flag has an "unknown" level and filtering is left to the user.
+- **Stage 1 decodes an instruction one part at a time.** Presence, direction and value of the turn, then of the altitude change, then of the speed change; each part sees the parts before it. Sampled instructions are therefore always coherent, and Stage 1 can hold genuinely different readings at once, such as *left 270* versus *right 090*.
+- **Headings are predicted over 72 bins of 5°**, not as one value with an error bar: a misheard *two zero zero* can plausibly be 290, 100 or 300, and only a binned distribution can represent that.
+- **Stage 1 sees the aircraft's current state.** Altitude, speed and heading let it reject physically implausible readings, such as a speed far outside what the aircraft flies.
+- **Stage 2 predicts speed, heading and vertical rate, not positions.** That is what an instruction commands; positions follow by integrating them. Early errors are weighted more heavily because they shift every later position.
+- **Stage 2 is a flow-matching generative model.** It turns random noise into a set of plausible trajectories, so it can represent several different futures, not just an average path.
+- **The no-instruction condition comes from the same model.** Stage 2 is trained with the instruction randomly hidden (10% of the time), which makes it its own past-only baseline. Changing that rate changes the baseline every gain is measured against.
+- **Units are scaled by fixed aviation constants**, never by dataset statistics, so a trained model stays valid when data is added or another airspace is used.
+- **VFR flights are flagged, not removed.** A VFR aircraft is not following ATC instructions, so its reconstructed instruction is fictitious; squawk is often missing, so the flag has an "unknown" level and filtering is left to the user.
 
 ## Citation
 
-A paper describing this work is in preparation. Until it is published, please cite the
-software (GitHub's **Cite this repository** button gives the same entry from
+A paper describing this work is in preparation. Until it is published, please cite the software (GitHub's **Cite this repository** button gives the same entry from
 `CITATION.cff`):
 
 ```bibtex
@@ -337,9 +300,7 @@ If you use the ADS-B data, please also cite the OpenSky Network:
 
 ## Acknowledgements
 
-This project was inspired by Louis Brusset's earlier work. Aircraft surveillance data comes
-from the [OpenSky Network](https://opensky-network.org); the simulated recognizer is fitted
-on the [ATCO2](https://www.atco2.org) corpus.
+This project was inspired by [Louis Brusset](https://github.com/LouisBrusset) and [Mathurin](https://github.com/matu1003)'s earlier work. Aircraft surveillance data comes from the [OpenSky Network](https://opensky-network.org); the simulated recognizer is fitted on the [ATCO2](https://www.atco2.org) corpus.
 
 ## License
 
