@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ATC transcript content labels (one item)",
+  "description": "Output format of INSTRUCTIONS.md. One object per input line.",
+  "type": "object",
+  "required": ["item_id", "turns"],
+  "additionalProperties": false,
+  "properties": {
+    "item_id": {"type": "string"},
+    "turns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["turn", "type", "language", "callsign", "clauses", "notes"],
+        "additionalProperties": false,
+        "properties": {
+          "turn": {"type": "integer", "minimum": 0},
+          "type": {"enum": ["instruction", "readback", "request", "report", "acknowledgement", "other"]},
+          "language": {"enum": ["english", "mixed", "non_english", "no_speech"]},
+          "callsign": {
+            "oneOf": [
+              {"type": "null"},
+              {"type": "object", "required": ["text", "normalized"], "additionalProperties": false,
+               "properties": {"text": {"type": "string"}, "normalized": {"type": "string"}}}
+            ]
+          },
+          "clauses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind", "action", "direction", "value", "unit", "value_words",
+                           "status", "relative", "repeated", "span"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {"enum": ["heading", "turn", "altitude", "speed", "vertical_rate", "frequency",
+                                  "squawk", "direct_to", "route", "approach", "landing", "takeoff",
+                                  "line_up", "taxi", "hold", "go_around", "report", "traffic",
+                                  "weather", "altimeter", "other"]},
+                "action": {"type": ["string", "null"]},
+                "direction": {"enum": ["left", "right", "climb", "descend", "increase", "reduce", null]},
+                "value": {"type": ["number", "string", "null"]},
+                "unit": {"enum": ["deg", "ft", "FL", "kt", "mach", "MHz", "code", "fpm", "nm",
+                                  "runway", "point", null]},
+                "value_words": {"type": ["string", "null"]},
+                "status": {"enum": ["complete", "value_missing", "truncated", "corrected"]},
+                "relative": {"type": "boolean"},
+                "repeated": {"type": "boolean"},
+                "span": {"type": "string"}
+              }
+            }
+          },
+          "notes": {"type": ["string", "null"]}
+        }
+      }
+    }
+  }
+}

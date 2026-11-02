@@ -1,0 +1,281 @@
+{
+  "name": "whisper_large_v3_bench",
+  "spoken": true,
+  "scaling": "fixed",
+  "source": "fitted by channel.fit_labels from the labelled benchmark: recognizer whisper_large_v3, sets atco2_1h, atcosim_250, 809 recordings. Rates are per reference value; insertion is per recording (a recording can hold an instruction and its readback). correction_rate is a prior, not measured.",
+  "full_dropout": 0.0,
+  "verb_flip": 0.0,
+  "correction_rate": 0.03,
+  "keyword_dropout": 0.0089,
+  "fields": {
+    "heading": {
+      "dropout": 0.0177,
+      "number_dropout": 0.0,
+      "value_error": 0.0088
+    },
+    "altitude": {
+      "dropout": 0.0849,
+      "number_dropout": 0.0189,
+      "value_error": 0.1321
+    },
+    "speed": {
+      "dropout": 0.0513,
+      "number_dropout": 0.0094,
+      "value_error": 0.0705
+    },
+    "direction": {
+      "dropout": 0.0,
+      "flip": 0.0,
+      "omit": 0.0672
+    }
+  },
+  "insertion": {
+    "heading": 0.0025,
+    "altitude": 0.0087,
+    "speed": 0.0025,
+    "direction": 0.0
+  },
+  "confidence": {
+    "kind": "conditional",
+    "clean": {
+      "kind": "empirical_bins",
+      "bins": [
+        {
+          "mean_confidence": 0.5881,
+          "count": 187
+        },
+        {
+          "mean_confidence": 0.7276,
+          "count": 187
+        },
+        {
+          "mean_confidence": 0.8048,
+          "count": 187
+        },
+        {
+          "mean_confidence": 0.8823,
+          "count": 187
+        }
+      ],
+      "noise": 0.03,
+      "mean": 0.7507
+    },
+    "error": {
+      "kind": "empirical_bins",
+      "bins": [
+        {
+          "mean_confidence": 0.5581,
+          "count": 16
+        },
+        {
+          "mean_confidence": 0.6699,
+          "count": 16
+        },
+        {
+          "mean_confidence": 0.7474,
+          "count": 16
+        },
+        {
+          "mean_confidence": 0.8361,
+          "count": 16
+        }
+      ],
+      "noise": 0.03,
+      "mean": 0.7023
+    },
+    "noise": 0.03
+  },
+  "surface": {
+    "garble": 0.0,
+    "filler": 0.0,
+    "word_drop": 0.0,
+    "truncation": 0.0
+  },
+  "usable_for_sampling": [],
+  "provisional": [
+    "speed"
+  ],
+  "measured": {
+    "heading": {
+      "wrong": {
+        "k": 1,
+        "n": 113,
+        "rate": 0.0088,
+        "ci95": [
+          0.0016,
+          0.0484
+        ]
+      },
+      "value_missing": {
+        "k": 0,
+        "n": 113,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0329
+        ]
+      },
+      "kind_lost": {
+        "k": 2,
+        "n": 113,
+        "rate": 0.0177,
+        "ci95": [
+          0.0049,
+          0.0622
+        ]
+      },
+      "dropped": {
+        "k": 2,
+        "n": 113,
+        "rate": 0.0177,
+        "ci95": [
+          0.0049,
+          0.0622
+        ]
+      }
+    },
+    "altitude": {
+      "wrong": {
+        "k": 14,
+        "n": 106,
+        "rate": 0.1321,
+        "ci95": [
+          0.0803,
+          0.2096
+        ]
+      },
+      "value_missing": {
+        "k": 2,
+        "n": 106,
+        "rate": 0.0189,
+        "ci95": [
+          0.0052,
+          0.0662
+        ]
+      },
+      "kind_lost": {
+        "k": 0,
+        "n": 106,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.035
+        ]
+      },
+      "dropped": {
+        "k": 9,
+        "n": 106,
+        "rate": 0.0849,
+        "ci95": [
+          0.0453,
+          0.1535
+        ]
+      }
+    },
+    "speed": {
+      "wrong": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "value_missing": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "kind_lost": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "dropped": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      }
+    },
+    "direction": {
+      "swapped": {
+        "k": 0,
+        "n": 238,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0159
+        ]
+      },
+      "dropped": {
+        "k": 16,
+        "n": 238,
+        "rate": 0.0672,
+        "ci95": [
+          0.0418,
+          0.1064
+        ]
+      }
+    },
+    "keyword_dropout": {
+      "k": 2,
+      "n": 225,
+      "rate": 0.0089,
+      "ci95": [
+        0.0024,
+        0.0318
+      ]
+    },
+    "insertion_per_recording": {
+      "heading": {
+        "k": 2,
+        "n": 809,
+        "rate": 0.0025,
+        "ci95": [
+          0.0007,
+          0.009
+        ]
+      },
+      "altitude": {
+        "k": 7,
+        "n": 809,
+        "rate": 0.0087,
+        "ci95": [
+          0.0042,
+          0.0178
+        ]
+      },
+      "speed": {
+        "k": 2,
+        "n": 809,
+        "rate": 0.0025,
+        "ci95": [
+          0.0007,
+          0.009
+        ]
+      },
+      "direction": {
+        "k": 0,
+        "n": 809,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0047
+        ]
+      }
+    }
+  }
+}

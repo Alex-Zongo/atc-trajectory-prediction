@@ -2,14 +2,14 @@
   "name": "jacktol",
   "spoken": true,
   "scaling": "fixed",
-  "source": "sidecar atco2_1h_jacktol_semantic (ATCO2 1h); OMISSION-DOMINANT observed rates; sparse fields are priors | altitude re-derived 2026-09-30 with a corrected 'N thousand M hundred' parser; error modes measured",
+  "source": "sidecar atco2_1h_jacktol_semantic (ATCO2 1h); OMISSION-DOMINANT observed rates; sparse fields are priors | altitude re-derived 2026-09-30 with a corrected 'N thousand M hundred' parser; error modes measured | verb_flip and direction flip set to the measured 0 (climb/descend 0 of 51, left/right 0 of 21 swaps on these ATCO2 transcripts); the earlier 0.1707 and 0.0952 counted parser artefacts, not swaps",
   "full_dropout": 0.0,
-  "verb_flip": 0.1707,
+  "verb_flip": 0.0,
   "correction_rate": 0.03,
   "fields": {
     "direction": {
       "dropout": 0.0,
-      "flip": 0.0952
+      "flip": 0.0
     },
     "heading": {
       "dropout": 0.0,

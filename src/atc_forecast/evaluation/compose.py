@@ -155,7 +155,7 @@ def compose(stage1, vocab, max_len, flow, npz, wj, idx, device, lam, profile="ja
         onset_alt = batch["past"][:, -1, 2] * ALT_SCALE_FT
         sub = wj.iloc[idx[loc]]
 
-        texts = []
+        texts, confs = [], []
         for r in sub.itertuples():
             seg = {c: getattr(r, c) for c in CLEAR_COLS}
             n = corrupt_segment(seg, NoiseConfig(profile=profile,
@@ -164,8 +164,10 @@ def compose(stage1, vocab, max_len, flow, npz, wj, idx, device, lam, profile="ja
             texts.append(augment_transcript(n["noisy_directive"], rng,
                                             leg_type=getattr(r, "leg_type", None),
                                             phase=getattr(r, "phase", None)))
+            confs.append(n["asr_confidence"])
         toks = torch.tensor([vocab.encode(t, max_len) for t in texts], device=device)
-        conf = torch.full((len(loc),), 0.82, device=device)
+        # the channel's own confidence for each transcript, as Stage 1 saw in training
+        conf = torch.tensor(confs, dtype=torch.float32, device=device)
         point, sampled = stage1_clearances(stage1, toks, conf, k, state=onset_state(batch))
 
         plans = {

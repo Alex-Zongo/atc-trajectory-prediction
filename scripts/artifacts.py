@@ -4,11 +4,13 @@
 assets of one release (by default `data-v1`) on the same repository, so anyone who can see
 the repository can fetch them, from any branch, with one command:
 
-    python scripts/artifacts.py fetch            # weights + windows + meta (~420 MB)
+    python scripts/artifacts.py fetch                      # v2: weights + dataset (~1.5 GB)
+    python scripts/artifacts.py fetch --models-only        # v2: the four checkpoints (~30 MB)
+    python scripts/artifacts.py fetch --set v1             # v1 (release data-v1, ~420 MB)
 
 and the owner publishes them with
 
-    python scripts/artifacts.py publish          # creates or updates the release
+    python scripts/artifacts.py publish [--set v1]         # creates or updates the release
 
 Raw OpenSky ADS-B is NOT published by default: OpenSky's terms restrict redistributing
 it, and on a public repository every release asset is public. `publish --adsb` includes it
@@ -20,11 +22,23 @@ fails loudly instead of loading a broken checkpoint. Fetching needs the GitHub C
 logged in with access to the repository; without it, download the assets from the release
 page by hand and run `fetch --from <folder>`.
 
-Bundles:
+Bundles, v2 (release data-v2):
+
+  runs-v2.tar.gz    the main model's checkpoints: SBM, CTP, history-only CTP, anchors head
+  dataset-v2.tar    data/v2: 1 Hz windows (arrays, windows.parquet), segments, the PCA
+                    basis, the manifest and the jacktol messages (tokens, confidences)
+
+  The fitted word-confidence file (data/v2/word_conf.json) derives from ATCO2, which is for
+  internal research use, and is not shipped; message builds without it use a parametric
+  fallback with the same shape (channel/word_conf.py).
+
+Bundles, v1 (release data-v1):
 
   runs.tar.gz       runs/stage1.pt, runs/stage2.pt, runs/lambda.json
   dataset.tar       data/dataset/meta*.parquet, data/windows_raw/*
-  adsb_<day>.parquet  raw ADS-B the windows were cut from, one asset per day (opt-in)
+
+Both: adsb_<day>.parquet, the raw ADS-B the windows were cut from, one asset per day
+(opt-in, private repositories only).
 
 `data/cache/` is not shipped: the aircraft database and the airport features are public
 and are downloaded on first use.
@@ -40,12 +54,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STAGE = ROOT / ".artifacts"
-RELEASE = "data-v1"
-BUNDLES = {
-    "runs.tar.gz": ["runs/stage1.pt", "runs/stage2.pt", "runs/lambda.json"],
-    "dataset.tar": ["data/dataset/meta.parquet", "data/dataset/meta_grounded.parquet",
-                    "data/windows_raw/windows.npz", "data/windows_raw/windows_meta.parquet"],
+SETS = {
+    "v2": ("data-v2", {
+        "runs-v2.tar.gz": ["runs/v2/sbm_jacktol_anyorder_s0.pt", "runs/v2/ctp_basis_atoms_zfix_s0.pt",
+                           "runs/v2/ctp_basis_none_s0.pt", "runs/v2/anchors_atoms_zfix_s0.pt"],
+        "dataset-v2.tar": ["data/v2/arrays", "data/v2/windows.parquet", "data/v2/segments.parquet",
+                           "data/v2/basis.npz", "data/v2/manifest.json", "data/v2/messages_jacktol"],
+    }),
+    "v1": ("data-v1", {
+        "runs.tar.gz": ["runs/stage1.pt", "runs/stage2.pt", "runs/lambda.json"],
+        "dataset.tar": ["data/dataset/meta.parquet", "data/dataset/meta_grounded.parquet",
+                        "data/windows_raw/windows.npz", "data/windows_raw/windows_meta.parquet"],
+    }),
 }
+MODELS = {"v2": "runs-v2.tar.gz", "v1": "runs.tar.gz"}
 ADSB_GLOB = "data/adsb/adsb_*.parquet"
 
 
@@ -64,10 +86,17 @@ def gh(*args):
     subprocess.run(["gh", *args], cwd=ROOT, check=True)
 
 
+def bundles(a) -> dict:
+    b = SETS[a.set][1]
+    if getattr(a, "models_only", False):
+        return {MODELS[a.set]: b[MODELS[a.set]]}
+    return b
+
+
 def publish(a):
     STAGE.mkdir(exist_ok=True)
     assets = []
-    for name, members in BUNDLES.items():
+    for name, members in bundles(a).items():
         missing = [m for m in members if not (ROOT / m).exists()]
         if missing:
             sys.exit(f"cannot build {name}, missing: {', '.join(missing)}")
@@ -102,7 +131,7 @@ def publish(a):
 
 def fetch(a):
     src = Path(a.src) if a.src else STAGE
-    want = list(BUNDLES) + (["adsb_*.parquet"] if a.adsb else [])
+    want = list(bundles(a)) + (["adsb_*.parquet"] if a.adsb else [])
     if not a.src:
         STAGE.mkdir(exist_ok=True)
         for pattern in want + ["SHA256SUMS"]:
@@ -121,7 +150,7 @@ def fetch(a):
             sys.exit(f"{p.name} does not match its checksum; delete it and fetch again")
         return p
 
-    for name in BUNDLES:
+    for name in bundles(a):
         p = src / name
         if not p.exists():
             sys.exit(f"missing {p}")
@@ -144,16 +173,20 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("publish", help="pack runs/ and data/ and upload them to the release")
-    p.add_argument("--release", default=RELEASE)
+    p.add_argument("--set", default="v2", choices=tuple(SETS))
+    p.add_argument("--release", default=None, help="default: data-v2 or data-v1")
     p.add_argument("--adsb", action="store_true",
                    help="also publish the raw ADS-B; only on a private repository")
     p.add_argument("--dry-run", action="store_true", help="build the assets, upload nothing")
     f = sub.add_parser("fetch", help="download, verify and unpack the release assets")
-    f.add_argument("--release", default=RELEASE)
+    f.add_argument("--set", default="v2", choices=tuple(SETS))
+    f.add_argument("--release", default=None, help="default: data-v2 or data-v1")
+    f.add_argument("--models-only", action="store_true", help="only the model checkpoints")
     f.add_argument("--adsb", action="store_true", help="also install the raw ADS-B days")
     f.add_argument("--from", dest="src", default=None,
                    help="install from a folder of already-downloaded assets instead")
     a = ap.parse_args()
+    a.release = a.release or SETS[a.set][0]
     publish(a) if a.cmd == "publish" else fetch(a)
 
 

@@ -30,7 +30,14 @@ dependencies = [
 # historical ADS-B collection (OpenSky Trino backend)
 collect = ["pyopensky>=2.16"]
 # speech recognition for real audio
-asr = ["faster-whisper>=1.0", "srt>=3.5"]
+asr = [
+    "anthropic>=0.70",
+    "av<19",
+    "faster-whisper>=1.0",
+    "peft>=0.20",
+    "srt>=3.5",
+    "transformers>=4.46",
+]
 # interactive viewer
 app = [
     "plotly>=5.24",

@@ -24,8 +24,15 @@ Known limitation, measured. The independence assumption across fields holds on r
 (the odds of a second field being wrong given a first is wrong come out at or below the
 independent baseline). The confidence model does not: a real recognizer's confidence
 predicts its own error rate strongly, while a fitted channel emits one value plus noise, so
-the confidence input carries no per-utterance information. Supplying an empirical
-confidence distribution is the open improvement.
+the confidence input carries no per-utterance information.
+
+Profiles fitted from the labelled benchmark (`fit_labels.py`) add what the measurements
+showed real recognizers do and the channel could not: an instruction element nobody said
+(`insertion`), a direction word lost while its value survives (`direction.omit`), a value
+left without its instruction word (`keyword_dropout`), a per-value wrong rate
+(`value_error`), and a `conditional` confidence drawn from the recordings with or without an
+error, which closes the limitation above. Each draws random numbers only when its profile
+declares it, so older profiles reproduce exactly.
 """
 
 import json
@@ -109,6 +116,8 @@ class Channel:
     correction_rate: float = 0.0
     verb_flip: float = 0.0
     full_dropout: float = 0.0
+    keyword_dropout: float = 0.0
+    insertion: dict = field(default_factory=dict)
     confidence: dict = field(default_factory=lambda: {"kind": "fixed", "value": 0.8,
                                                       "noise": 0.05})
     surface: dict = field(default_factory=dict)
@@ -177,19 +186,71 @@ def _surface_corrupt(text: str, d: float, rates: dict, rng):
     return " ".join(out) + ".", tags
 
 
-def _confidence(ch: Channel, d: float, rng) -> float:
+def _from_bins(c: dict, rng) -> float:
+    bins = c.get("bins") or []
+    w = np.asarray([max(b.get("count", 1), 0) for b in bins], float)
+    if not bins or w.sum() <= 0:
+        return float(c.get("value", c.get("mean", 0.8)))
+    return float(bins[int(rng.choice(len(bins), p=w / w.sum()))].get("mean_confidence", 0.8))
+
+
+def _confidence(ch: Channel, d: float, rng, error: bool = False) -> float:
     c = ch.confidence
     kind = c.get("kind", "fixed")
     if kind == "fixed":
         base = float(c.get("value", 0.8))
     elif kind == "empirical_bins" and c.get("bins"):
-        bins = c["bins"]
-        w = np.asarray([max(b.get("count", 1), 0) for b in bins], float)
-        b = bins[int(rng.choice(len(bins), p=w / w.sum()))] if w.sum() > 0 else {}
-        base = float(b.get("mean_confidence", 0.8))
+        base = _from_bins(c, rng)
+    elif kind == "conditional":
+        base = _from_bins(c["error" if error else "clean"], rng)
     else:
         base = 1.0 - d
     return float(np.clip(base + rng.normal(0, c.get("noise", 0.0)), 0.0, 1.0))
+
+
+# Tags that change what the clearance says; surface damage and a spoken correction do not.
+SEMANTIC = {"direction_flip", "verb_flip", "lateral_dropout", "altitude_dropout",
+            "speed_dropout", "number_dropout", "heading_digit", "altitude_digit",
+            "speed_digit", "direction_omit", "insert_heading", "insert_altitude",
+            "insert_speed", "insert_direction"}
+
+
+def _value_rate(ch: Channel, field_name: str, value: int, scale: float) -> float:
+    """Per-digit corruption rate. `value_error` is measured per VALUE, so it is spread over
+    the value's digits to make the simulated wrong-value rate match it."""
+    p = ch.rate(field_name, "value_error", -1.0)
+    if p < 0:
+        return ch.rate(field_name, "digit_error") * scale
+    k = len(str(abs(int(value))))
+    return 1.0 - (1.0 - min(p * scale, 1.0)) ** (1.0 / k)
+
+
+def _insertions(seg, ch: Channel, scale: float, rng, spoken: dict) -> tuple[list, list]:
+    """Instruction elements nobody said, for the fields the clearance does not have."""
+    parts, tags = [], []
+    ins = ch.insertion
+    hdg_str, alt_str, spd_str = spoken["hdg"], spoken["alt"], spoken["spd"]
+    lateral_absent = seg["lateral"] not in ("L", "R")
+    if lateral_absent and rng.random() < ins.get("heading", 0.0) * scale:
+        delta = int(rng.choice([-40, -30, -20, -10, 10, 20, 30, 40]))
+        h = float(round_heading((float(seg["hdg_exit"]) + delta) % 360)) or 360.0
+        parts.append(f"turn {'right' if delta > 0 else 'left'} heading {hdg_str(h)}")
+        tags.append("insert_heading")
+    elif lateral_absent and rng.random() < ins.get("direction", 0.0) * scale:
+        parts.append(f"turn {rng.choice(['left', 'right'])}")
+        tags.append("insert_direction")
+    if seg["vertical"] not in ("climb", "descend") and rng.random() < ins.get("altitude", 0.0) * scale:
+        base = max(round(float(seg["alt_exit_ft"]) / 1000.0), 1) * 1000
+        delta = int(rng.choice([-3000, -2000, -1000, 1000, 2000, 3000]))
+        a = float(max(base + delta, 1000))
+        parts.append(f"{'climb' if a > base else 'descend'} and maintain {alt_str(a)}")
+        tags.append("insert_altitude")
+    if seg["speed"] not in ("accel", "decel") and rng.random() < ins.get("speed", 0.0) * scale:
+        base = float(round_speed(float(seg["spd_exit_kt"])))
+        delta = int(rng.choice([-30, -20, -10, 10, 20, 30]))
+        parts.append(f"{'increase' if delta > 0 else 'reduce'} speed {spd_str(base + delta)} knots")
+        tags.append("insert_speed")
+    return parts, tags
 
 
 def _phrase_heading(side, h, rng, p, kw_p=0.0):
@@ -242,15 +303,21 @@ def corrupt_segment(seg, cfg: NoiseConfig, rng) -> dict:
     issued_alt = float(max(round(float(seg["alt_exit_ft"]) / 1000.0), 1) * 1000)
     issued_spd = float(round_speed(float(seg["spd_exit_kt"])))
     heard_hdg, heard_alt, heard_spd = issued_hdg, issued_alt, issued_spd
-    conf = _confidence(ch, d, rng)
+    # a conditional confidence depends on what the channel did, so it is drawn last
+    conditional = ch.confidence.get("kind") == "conditional"
+    conf = None if conditional else _confidence(ch, d, rng)
     tags, parts, has_correction = [], [], False
 
     if rng.random() < ch.full_dropout * scale:
+        if conditional:
+            conf = _confidence(ch, d, rng, error=True)
         return _dropped((issued_hdg, issued_alt, issued_spd), d, conf)
 
     hdg_str = spoken_heading if ch.spoken else (lambda h: f"{round_heading(h):03d}")
     alt_str = spoken_altitude if ch.spoken else (lambda a: f"{int(a):,}")
     spd_str = (lambda s: spoken_digits(int(s))) if ch.spoken else (lambda s: str(int(s)))
+    kw_p = max(cfg.keyword_dropout_p, ch.keyword_dropout)
+    omit = ch.rate("direction", "omit")
 
     if lateral in ("L", "R"):
         dir_ = lateral
@@ -274,12 +341,16 @@ def corrupt_segment(seg, cfg: NoiseConfig, rng) -> dict:
             heard_hdg = np.nan
         else:
             h = _corrupt_digits(int(issued_hdg), rng,
-                                ch.rate("heading", "digit_error") * scale) % 360
+                                _value_rate(ch, "heading", issued_hdg, scale)) % 360
             heard_hdg = float(h) if h != 0 else 360.0
             if abs(heard_hdg - issued_hdg) > 0.5:
                 tags.append("heading_digit")
-            parts.append(_phrase_heading(side, hdg_str(heard_hdg), rng, cfg.phrase_variant_p,
-                                         kw_p=cfg.keyword_dropout_p))
+            if omit > 0 and rng.random() < omit * scale:
+                parts.append(f"heading {hdg_str(heard_hdg)}")
+                tags.append("direction_omit")
+            else:
+                parts.append(_phrase_heading(side, hdg_str(heard_hdg), rng,
+                                             cfg.phrase_variant_p, kw_p=kw_p))
 
     if vertical in ("climb", "descend"):
         v = vertical
@@ -300,15 +371,20 @@ def corrupt_segment(seg, cfg: NoiseConfig, rng) -> dict:
             heard_alt = np.nan
         else:
             heard_alt = float(_corrupt_digits(int(issued_alt / 1000), rng,
-                                              ch.rate("altitude", "digit_error") * scale) * 1000)
+                                              _value_rate(ch, "altitude", issued_alt / 1000,
+                                                          scale)) * 1000)
             if abs(heard_alt - issued_alt) > 1:
                 tags.append("altitude_digit")
             # bare digits with the scale keyword removed: flight-level digits above FL180,
             # else the thousands digit
             a = int(round(heard_alt))
             bare = spd_str(a // 100 if a >= 18000 else a // 1000)
-            parts.append(_phrase_altitude(v, alt_str(heard_alt), rng, cfg.phrase_variant_p,
-                                          bare=bare, kw_p=cfg.keyword_dropout_p))
+            if omit > 0 and rng.random() < omit * scale:
+                parts.append(f"maintain {alt_str(heard_alt)}")
+                tags.append("direction_omit")
+            else:
+                parts.append(_phrase_altitude(v, alt_str(heard_alt), rng, cfg.phrase_variant_p,
+                                              bare=bare, kw_p=kw_p))
 
     if speed in ("accel", "decel"):
         verb = "increase" if speed == "accel" else "reduce"
@@ -321,16 +397,28 @@ def corrupt_segment(seg, cfg: NoiseConfig, rng) -> dict:
             heard_spd = np.nan
         else:
             heard_spd = float(_corrupt_digits(int(issued_spd), rng,
-                                              ch.rate("speed", "digit_error") * scale))
+                                              _value_rate(ch, "speed", issued_spd, scale)))
             if abs(heard_spd - issued_spd) > 0.5:
                 tags.append("speed_digit")
-            parts.append(_phrase_speed(verb, spd_str(heard_spd), rng, cfg.phrase_variant_p,
-                                       kw_p=cfg.keyword_dropout_p))
+            if omit > 0 and rng.random() < omit * scale:
+                parts.append(f"speed {spd_str(heard_spd)} knots")
+                tags.append("direction_omit")
+            else:
+                parts.append(_phrase_speed(verb, spd_str(heard_spd), rng, cfg.phrase_variant_p,
+                                           kw_p=kw_p))
+
+    if ch.insertion:
+        extra, itags = _insertions(seg, ch, scale, rng,
+                                   {"hdg": hdg_str, "alt": alt_str, "spd": spd_str})
+        parts += extra
+        tags += itags
 
     text = ", ".join(parts) + "." if parts else ""
     if any(ch.surface.get(k, 0.0) > 0 for k in ("garble", "filler", "word_drop", "truncation")):
         text, stags = _surface_corrupt(text, scale, ch.surface, rng)
         tags += stags
+    if conditional:
+        conf = _confidence(ch, d, rng, error=bool(SEMANTIC & set(tags)))
 
     has_lat = lateral in ("L", "R")
     has_vert = vertical in ("climb", "descend")
