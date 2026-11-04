@@ -66,10 +66,10 @@ The weights are release assets, not in git. The processed dataset is derived fro
 gh auth login                                          # once
 uv run python scripts/artifacts.py fetch --models-only # the main model and its baselines (~38 MB)
 hf auth login                                          # once, after access is granted
-uv run python scripts/artifacts.py fetch --hub Alex-Zongo   # the models and the processed v2 dataset (~2 GB)
+uv run python scripts/artifacts.py fetch --hub alexzongo   # the models and the processed v2 dataset (~2 GB)
 ```
 
-The models are also on the Hub (`fetch --hub Alex-Zongo --models-only`).
+The models are also on the Hub (`fetch --hub alexzongo --models-only`).
 
 | checkpoint | what it is |
 |---|---|

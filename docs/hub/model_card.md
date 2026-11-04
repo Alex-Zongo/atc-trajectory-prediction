@@ -33,7 +33,7 @@ p(Y | O, X)  ≈  Σ_Z  q_φ(Z | O, X) · p_θ(Y | X, Z)
 Install into a clone of the repository:
 
 ```bash
-uv run python scripts/artifacts.py fetch --hub Alex-Zongo --models-only
+uv run python scripts/artifacts.py fetch --hub alexzongo --models-only
 ```
 
 Then, for example:
