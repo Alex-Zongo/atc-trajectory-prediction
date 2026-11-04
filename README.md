@@ -2,6 +2,10 @@
 
 Predicting where an aircraft will be over the next minute, from its ADS-B track and a controller instruction known only through an imperfect speech transcript.
 
+![Three synthetic test transmissions on real ADS-B tracks: the heard transcript, the most probable interpretations, the 72 predicted trajectories against the history-only prediction, and the flown trajectory](docs/assets/demo.gif)
+
+*Synthetic test transmissions (simulated recognizer) on real ADS-B tracks. Word chips are shaded by recognizer confidence. Blue: the prediction from 12 interpretations × 6 trajectories. Gray: history only. Dashed: what the aircraft flew.*
+
 ## Why
 
 Conflict detection, arrival sequencing and separation all rest on predicting each aircraft's near-term trajectory. Over a minute or two, that trajectory is driven by controller instructions such as *turn left heading 270* or *descend and maintain 5,000*. An instruction is the strongest single cue to what an aircraft is about to do, often well before the change shows up on surveillance.
@@ -43,7 +47,17 @@ On the synthetic test set (real ADS-B, transcripts simulated from a fitted recog
 | **SBM, 12 interpretations × 6 trajectories → CTP (main)** | **1,682 ± 5** | **2,701** | 0.86 |
 | CTP given the reference interpretation (upper reference) | 1,556 ± 2 | 2,615 | 0.85 |
 
-On 338 recorded controller transmissions matched to ADS-B (private set, NorCal Departure), the same models improve on history only by 9 % and rank the addressed aircraft first among about 12 for 98 % of transmissions. Ablations, the SBM versions, calibration, recorded speech and where the error remains are covered in [docs/v2/results.md](docs/v2/results.md).
+On recorded speech: 338 controller transmissions from a public NorCal Departure feed, transcribed by a general-purpose Whisper large-v3 and matched to the ADS-B of the aircraft addressed. Energy scores in metres, means over three SBM training runs with the same CTP:
+
+| | energy score | addressed aircraft ranked first (of ~12 within 40 nm) |
+|---|---|---|
+| history only (ignores the radio) | 5,397 | — |
+| SBM most probable interpretation → CTP | 5,454 | — |
+| **SBM, 12 interpretations × 6 trajectories → CTP (main)** | **4,906 ± 52** | **98 %** |
+
+Composition improves on history only by 9 %, and on the most probable interpretation alone by 10 %. Two limits remain. The prediction is overconfident on recorded speech (30 % of flown trajectories fall in the outer tenth), and the vertical error is still worse than history only. The set is private (only aggregates are reported) and not fully independent of training, since part of the SBM's training phrasing was taken from the same frequency.
+
+Ablations, the SBM versions, calibration, recorded speech and where the error remains are covered in [docs/v2/results.md](docs/v2/results.md).
 
 v1, the original two-stage model behind the first results, is documented in [docs/v1.md](docs/v1.md) and tagged `v1.0.0`. Its code is unchanged.
 
