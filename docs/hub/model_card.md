@@ -19,7 +19,7 @@ Checkpoints for [atc-trajectory-prediction](https://github.com/Alex-Zongo/atc-tr
 p(Y | O, X)  ≈  Σ_Z  q_φ(Z | O, X) · p_θ(Y | X, Z)
 ```
 
-- **Semantic belief model (SBM)** `q_φ(Z | O, X)`: a distribution over message interpretations (status, lateral, vertical and speed instruction) from the transcript, each word's recognizer confidence, the aircraft's own ADS-B callsign and its 30 s history.
+- **Semantic belief model (SBM)** `q_φ(Z | O, X)`: a distribution over interpretations (status, lateral, vertical and speed instruction) from the transcript, each word's recognizer confidence, the aircraft's own ADS-B callsign and its 30 s history.
 - **Conditional trajectory predictor (CTP)** `p_θ(Y | X, Z)`: a rectified flow on 18 PCA trajectory-shape coefficients.
 - **Composition**: 12 interpretations drawn from the SBM, 6 future trajectories under each.
 
@@ -51,7 +51,7 @@ Energy score in metres over 60 s, lower is better, on instructions for the aircr
 
 Research on trajectory prediction under communication uncertainty. Not for operational use.
 
-- Trained on synthetic messages built from real ADS-B over the San Francisco Bay Area (five days), with transcripts simulated from a fitted recognizer channel.
+- Trained on synthetic transmissions built from real ADS-B over the San Francisco Bay Area (five days), with transcripts simulated from a fitted recognizer channel.
 - The interpretation space covers heading, altitude and speed instructions. Route, conditional and procedure clearances are outside it.
 - The flow with 12 Euler steps is moderately overconfident (90 % intervals cover 0.86). On recorded speech the prediction is more overconfident, and its vertical score does not beat the history-only model.
 - Speed targets are compared with ground speed, and headings with track.

@@ -2,7 +2,7 @@
 
 All numbers come from `results/v2/` (re-created by the commands in [pipeline.md](pipeline.md)). Unless stated otherwise, scores are horizontal energy scores (ES) in metres over the 60 s horizon, lower is better.
 
-**Main results are means over three training runs** (seeds 0, 1, 2) of the SBM, the CTP and the mixture head, with the standard deviation across runs where it matters. The history-only and transcript-conditioned models are trained once. The SBM is the **final SBM**: trained with callsign contrast messages, then fine-tuned on generated handoff phrases (see [the SBM versions](#the-sbm-versions)). Sensitivity studies and explicit maneuver representations use the base SBM and the first run, and are compared within a group.
+**Main results are means over three training runs** (seeds 0, 1, 2) of the SBM, the CTP and the mixture head, with the standard deviation across runs where it matters. The history-only and transcript-conditioned models are trained once. The SBM is the **final SBM**: trained with callsign-contrast transmissions, then fine-tuned on generated handoff phrases (see [the SBM versions](#the-sbm-versions)). Sensitivity studies and explicit maneuver representations use the base SBM and the first run, and are compared within a group.
 
 - [Terms](#terms)
 - [Metrics](#metrics)
@@ -18,12 +18,12 @@ All numbers come from `results/v2/` (re-created by the commands in [pipeline.md]
 
 | term | meaning |
 |---|---|
-| message interpretation `Z` | what a message means for one aircraft: a status (own motion, own without motion, other aircraft) and a lateral, vertical and speed instruction |
-| reference interpretation | the interpretation a synthetic test message was generated from; conditioning on it is an upper reference, not a deployable model |
+| interpretation `Z` | what a transmission means for one aircraft: a status (own motion, own without motion, other aircraft) and a lateral, vertical and speed instruction |
+| reference interpretation | the interpretation a synthetic test transmission was generated from; conditioning on it is an upper reference, not a deployable model |
 | most probable interpretation | the SBM's certified mode, found by beam search |
 | composed prediction | 12 interpretations drawn from the SBM, 6 future trajectories under each |
 | trajectory segment | one test sample: 30 s of history and the next 60 s |
-| joint addressee inference | on a frequency, each message addresses at most one aircraft: the SBM's evidence for being addressed is normalized across the aircraft |
+| joint addressee inference | on a frequency, each transmission addresses at most one aircraft: the SBM's evidence for being addressed is normalized across the aircraft |
 
 ## Metrics
 
@@ -31,12 +31,12 @@ Each prediction is 72 future trajectories: K = 12 interpretations × S = 6 traje
 
 - **Energy score:** the spread term pairs only trajectories drawn under different interpretations. That keeps it unbiased for the composed distribution, while pairing all 72 inflates it.
 - **Coverage (`cov50`, `cov90`):** the share of true coordinates inside the central predictive interval, per coordinate and lead time. It is read from the PIT of sub-ensembles with one trajectory per interpretation, so a calibrated prediction reads exactly 0.50 and 0.90. Each sub-ensemble has K members, so compare coverage only at equal K. The older quantile-based value is kept as `cov90_q` (calibrated: 0.875).
-- **`rank_out10`:** the share of messages whose whole true trajectory falls in the most outlying tenth of the prediction, by multivariate rank. It is 0.10 when calibrated, and higher means overconfident.
+- **`rank_out10`:** the share of transmissions whose whole true trajectory falls in the most outlying tenth of the prediction, by multivariate rank. It is 0.10 when calibrated, and higher means overconfident.
 - **PIT and rank histograms:** 10 bins each, stored in `calibration.<condition>.hist` of every evaluation JSON.
 
 ## Test results
 
-5,000 test segments, three messages each, in four categories:
+5,000 test segments, three transmissions each, in four categories:
 - `own`: an instruction for this aircraft's maneuver;
 - `maintain`: for it, but "keep doing what you are doing";
 - `non-motion`: for it, but not about motion (frequency change, traffic);
@@ -54,37 +54,37 @@ Each prediction is 72 future trajectories: K = 12 interpretations × S = 6 traje
 | CTP given the reference interpretation | 1,556 ± 2 | 1,496 | 3,151 | 3,149 | 2,615 | 215 / 545 | 0.85 |
 | kinematic rule on the reference interpretation | – | – | – | – | – | 399 / 940 | – |
 
-Paired difference, composed minus most probable interpretation, own messages: −46 ± 3 m across runs (first run: 95 % bootstrap interval [−66, −30] m). Composition is ahead in every run. With an SBM-initialized text encoder, the transcript-conditioned CTP reaches 2,108 on own messages.
+Paired difference, composed minus most probable interpretation, own transmissions: −46 ± 3 m across runs (first run: 95 % bootstrap interval [−66, −30] m). Composition is ahead in every run. With an SBM-initialized text encoder, the transcript-conditioned CTP reaches 2,108 on own transmissions.
 
 ## The SBM versions
 
-| version | training messages | used for |
+| version | training transmissions | used for |
 |---|---|---|
 | base | own 50 %, own without motion 20 %, other aircraft 20 %, maintain 10 % | sensitivity studies, explicit representations |
-| + callsign contrast | adds 15 % *contrast* messages: the aircraft's own instruction under another aircraft's callsign, labeled "other aircraft" (`messages.py --swap`), and phrasing heard on the recorded NorCal frequency (`--real-phrasing 0.15`) | ablation |
+| + callsign contrast | adds 15 % *contrast* transmissions: the aircraft's own instruction under another aircraft's callsign, labeled "other aircraft" (`messages.py --swap`), and phrasing heard on the recorded NorCal frequency (`--real-phrasing 0.15`) | ablation |
 | **final** | the callsign-contrast SBM, fine-tuned 10,000 steps on a set with generated handoff phrases: random facility names and frequencies (`messages.py --handoff 0.5`) | **main results** |
 
 The final SBM also reads two callsign-alignment features per transcript token (`--cs-match`), and its addressee prior is 0.7 instead of 0.8.
 
-**Callsign probe** (`diagnose_v2.py callsign`, 600 own messages with the callsign received, share still assigned to the aircraft):
+**Callsign probe** (`diagnose_v2.py callsign`, 600 own transmissions with the callsign received, share still assigned to the aircraft):
 
 | probe | base | + callsign contrast | final |
 |---|---|---|---|
-| A: original message | 99.8 % | 99.7 % | 99.7 % |
+| A: original transmission | 99.8 % | 99.7 % | 99.7 % |
 | B: callsign of another aircraft | **68.8 %** | 14.5 % | 14.9 % |
 | C: history of another aircraft | 83.6 % | 83.9 % | 84.9 % |
 | E: own instruction, other callsign (held out) | – | 4.4 % | 4.5 % |
 
-In the base training set, every message for another aircraft carried an instruction that did not fit the receiving aircraft's history, so the history alone separated the classes and the SBM barely compared callsigns. The contrast messages remove that shortcut. On the single-aircraft test, the final SBM scores 1,682 on own messages against 1,678 for the base SBM.
+In the base training set, every transmission for another aircraft carried an instruction that did not fit the receiving aircraft's history, so the history alone separated the classes and the SBM barely compared callsigns. The contrast transmissions remove that shortcut. On the single-aircraft test, the final SBM scores 1,682 on own transmissions against 1,678 for the base SBM.
 
 ## What works
 
 1. **Reading the instruction.** Own-maneuver error drops from 3,202 (history only) to 1,682, which retains 92 % of the gain that the reference interpretation gives (1,556). ADE drops from 435 m to 238 m.
-2. **An explicit interpretation** (transcript → SBM → Z → CTP) beats a CTP that reads the transcript directly, on the messages that matter: 1,682 against 2,108–2,187. It also gives readable intermediate outputs, namely interpretations with probabilities.
-3. **Composition over the SBM's samples** rather than the most probable interpretation: −46 ± 3 m on own messages.
-   - **Where the gain is:** on the 16 % of messages whose most probable interpretation is wrong, composition lowers the error from 2,520 to 2,116, closing 38 % of the gap to the reference interpretation (1,471).
+2. **An explicit interpretation** (transcript → SBM → Z → CTP) beats a CTP that reads the transcript directly, on the transmissions that matter: 1,682 against 2,108–2,187. It also gives readable intermediate outputs, namely interpretations with probabilities.
+3. **Composition over the SBM's samples** rather than the most probable interpretation: −46 ± 3 m on own transmissions.
+   - **Where the gain is:** on the 16 % of transmissions whose most probable interpretation is wrong, composition lowers the error from 2,520 to 2,116, closing 38 % of the gap to the reference interpretation (1,471).
    - **What it costs:** where the most probable interpretation is right, 1.3 % (1,570 → 1,590).
-4. **Turn direction from the aircraft's track** (`diagnose_v2.py turn`). On 6,963 test messages whose transcript kept the heading but lost "left"/"right", the SBM's direction matches the shorter turn 95 % of the time and the flown direction 93 % (the aircraft flew the shorter turn 92 % of the time). Mirroring the aircraft's track about the instructed heading reverses its choice for 87 % of messages, and for 99 % of 30–90° turns. Near 180°, where geometry says little, it keeps both directions.
+4. **Turn direction from the aircraft's track** (`diagnose_v2.py turn`). On 6,963 test transmissions whose transcript kept the heading but lost "left"/"right", the SBM's direction matches the shorter turn 95 % of the time and the flown direction 93 % (the aircraft flew the shorter turn 92 % of the time). Mirroring the aircraft's track about the instructed heading reverses its choice for 87 % of transmissions, and for 99 % of 30–90° turns. Near 180°, where geometry says little, it keeps both directions.
 5. **The allocation matters little beyond one interpretation** (base SBM, full test set):
 
    | K × S | 12 × 6 | 36 × 2 | 4 × 18 | 1 × 72 |
@@ -92,12 +92,12 @@ In the base training set, every message for another aircraft carried an instruct
    | own | 1,675 | 1,669 | 1,673 | 1,803 |
 
 6. **History in the SBM.** Without it (2,000-segment subset), the most probable interpretation is right 90 % of the time instead of 94 %, and composed own error rises from 1,590 to 1,721.
-7. **Segment-independent no-motion training labels** for the CTP. Maintain-message error falls from 1,573 to 1,490, and all-message error by about 1 %.
-8. **Who the message is for** (8 aircraft per scene, 1,000 messages, `addressee_v2`, final SBM):
+7. **Segment-independent no-motion training labels** for the CTP. Maintain-transmission error falls from 1,573 to 1,490, and all-transmission error by about 1 %.
+8. **Who the transmission is for** (8 aircraft per scene, 1,000 transmissions, `addressee_v2`, final SBM):
    - **Other aircraft:** interpreted independently they score 3,874, already 29 % below the base SBM's 5,464. Joint addressee inference brings this to 3,088.
    - **Scene score:** routing no-motion interpretations to the history-only model brings the weighted scene score to 2,773. That is better than giving every aircraft its reference interpretation (2,890), because the CTP's no-motion answer is weaker than the history-only model's.
-   - **Cost to the addressee:** when its callsign is clipped, its error rises from 1,924 to 2,590, the honest answer to an ambiguous message.
-   - **Ranking:** the addressee ranks first for 91 %, 87 % and 83 % of messages with 4, 8 and 16 aircraft. With 16 aircraft the gap to a given addressee falls from 451 m (base SBM) to 313 m.
+   - **Cost to the addressee:** when its callsign is clipped, its error rises from 1,924 to 2,590, the honest answer to an ambiguous transmission.
+   - **Ranking:** the addressee ranks first for 91 %, 87 % and 83 % of transmissions with 4, 8 and 16 aircraft. With 16 aircraft the gap to a given addressee falls from 451 m (base SBM) to 313 m.
 9. **The flow sampler.**
    - **Euler steps:** with 12 steps the flow is mildly overconfident (cov90 0.86, rank_out10 0.15).
    - **Heun, 32 steps:** on the same weights, cov90 reaches 0.90 and rank_out10 0.10, with own error 1,662 (base SBM, full test set). Most of the overconfidence therefore comes from the coarse integration, not from the learned field. Heun costs about five times the network calls.
@@ -107,8 +107,8 @@ In the base training set, every message for another aircraft carried an instruct
 | change | result | verdict |
 |---|---|---|
 | SBM: independent slots, or a mixture over joint interpretations (2,000 segments) | composed own 1,600 / 1,597 against 1,590 | no difference once composed. Any-order kept for its exact joint and certified most probable interpretation |
-| SBM trained on concurrent messages for other aircraft (real instructions within 2 min) | addressee first 84 % against 82 % | no gain. The callsign comparison, not more negatives, was missing (see callsign contrast) |
-| mixture-density head (anchors) instead of the flow | own 1,672 ± 2 against 1,682 ± 5 (paired −9 ± 4); all 2,762 against 2,701; calibrated (cov90 0.90, rank_out10 0.09); one network call instead of twelve | a valid fast alternative. The flow wins on non-instruction messages |
+| SBM trained on concurrent transmissions for other aircraft (real instructions within 2 min) | addressee first 84 % against 82 % | no gain. The callsign comparison, not more negatives, was missing (see callsign contrast) |
+| mixture-density head (anchors) instead of the flow | own 1,672 ± 2 against 1,682 ± 5 (paired −9 ± 4); all 2,762 against 2,701; calibrated (cov90 0.90, rank_out10 0.09); one network call instead of twelve | a valid fast alternative. The flow wins on non-instruction transmissions |
 | flow on the 180 per-second values instead of 18 coefficients (2,000 segments) | own 1,606 against 1,590, all +5 %, cov90 0.88 against 0.86, 2.4× the training time | not worth it |
 | sine basis instead of PCA (same 6 / 4 / 8 shapes per axis) | own 1,674 against 1,675, all +1.3 %, cov90 0.83 against 0.86 | the basis is not the accuracy bottleneck. PCA calibrates better |
 | uniform flow-time sampling instead of logit-normal | 1,666 against 1,631 (validation) | logit-normal kept |
@@ -126,15 +126,15 @@ A private evaluation set (not fully independent of the contrast and final SBMs, 
 
 History only: 5,397 m. Mean ± sd over three SBM runs, with the same CTP throughout.
 
-- **The interface transfers:** with the final SBM, composition beats history only by 9 % and the most probable interpretation by 10 % (3 % on synthetic messages). The prediction is overconfident: 30 % of flown trajectories fall in the outer tenth.
+- **The interface transfers:** with the final SBM, composition beats history only by 9 % and the most probable interpretation by 10 % (3 % on synthetic transmissions). The prediction is overconfident: 30 % of flown trajectories fall in the outer tenth.
 - **The callsign comparison transfers:** the matched aircraft, among about 12 within 40 nm, is ranked first for 98 % of transmissions, against 39 % for the base SBM.
 - **Handoffs:** the base SBM's lower handoff score (4,578 m, but 3,917–5,329 across runs) comes from misreading frequencies as climbs. Under those climbs the horizontal error falls and the vertical error rises, in every run. The final SBM reads them correctly and scores 5,328 ± 39 m, below history only (5,569 m). The overall change from the callsign-contrast SBM is −171, +131 and +344 m in the three runs, so there is no consistent effect on the mean, but the spread across runs falls from ±300 to ±52 m.
 - **Open:** the vertical score is worse than history only (1,360 against 1,221 m), and altitude instructions barely improve it.
 
 ## Where the error is
 
-- **Messages for other aircraft and non-motion messages** carry the largest errors. On these the history-only model is still better (2,988 against 3,152–3,296), which is why routing no-motion interpretations to it helps on a frequency. A CTP trained with more such examples is the clean fix.
-- **A second maneuver later in the minute:** segments with one score 1,724 against 1,392 without. No message announced it.
+- **Transmissions for other aircraft and non-motion transmissions** carry the largest errors. On these the history-only model is still better (2,988 against 3,152–3,296), which is why routing no-motion interpretations to it helps on a frequency. A CTP trained with more such examples is the clean fix.
+- **A second maneuver later in the minute:** segments with one score 1,724 against 1,392 without. No transmission announced it.
 - **Generalization:** train 1,432 against validation 1,631, a modest gap.
 - **Altitude noise:** ADS-B altitude is quantized to 25 ft and wiggles about 10 ft (median) in level flight. Vertical errors of that size are measurement error, not model error.
 - **Recorded speech:** overconfidence, vertical prediction, and phrases outside the training phraseology.

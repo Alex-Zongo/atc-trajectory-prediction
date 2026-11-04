@@ -32,7 +32,7 @@ Device selection is automatic (CUDA, then Apple MPS, then CPU); override it with
 | `data/frames.py` | track frame, features, centering velocity, residual targets, per-step scale, PCA basis |
 | `data/atoms.py` | atom vocabularies (status 3, lateral 146, vertical 106, speed 112), labels to atoms, relative features |
 | `data/windows_v2.py` | the dataset build |
-| `data/messages.py` | precomputed messages: four variants per window, through the fitted recognizer channel |
+| `data/messages.py` | precomputed transmissions: four variants per window, through the fitted recognizer channel |
 | `data/primitives.py` | maneuver primitives and physical kinds (design A) |
 | `channel/model.py`, `channel/profiles/` | the recognizer channel and its fitted rates per recognizer |
 | `channel/word_conf.py` | per-word confidence distributions fitted to real recognizers |
@@ -45,8 +45,8 @@ Device selection is automatic (CUDA, then Apple MPS, then CPU); override it with
 | `training/sbm_v2.py`, `training/traj_v2.py` | training loops for the SBM and for the CTP and its alternatives |
 | `training/tracking.py` | optional W&B logging |
 | `evaluation/metrics_v2.py` | ADE/FDE, min-ADE, energy, variogram, coverage, PIT, rank, spread-skill, raw-ADS-B error |
-| `evaluation/compose_v2.py` | every condition on fixed test messages |
-| `evaluation/addressee_v2.py` | who the message is for: resolution over the aircraft on frequency |
+| `evaluation/compose_v2.py` | every condition on fixed test transmissions |
+| `evaluation/addressee_v2.py` | who the transmission is for: resolution over the aircraft on frequency |
 | `evaluation/real_v2.py` | the same conditions on real matched transmissions and ADS-B |
 | `inference/` | ADS-B readers (OpenSky, readsb/adsb.lol), transcript normalization, `Forecaster` |
 | `scripts/run_v2.sh` | the whole plan, by stage |
@@ -81,7 +81,7 @@ uv run python -m atc_forecast.evaluation.addressee_v2 --sbm runs/v2/sbm_jacktol_
 uv run python scripts/collect_results_v2.py --runs runs/v2 --results results/v2 --out results/v2/results.json
 ```
 
-The `--direct` model is the transcript-reading CTP (`--condition text`, [training](#2-training)). The addressee evaluation reads the concurrent-distractor messages (`--tag _conc`, [evaluation](#who-is-the-message-for)). The `--p-null 0.2 --p-maintain 0.2` defaults of `traj_v2` are the corrected "not for us" labels; checkpoints without `zfix` in their name predate them.
+The `--direct` model is the transcript-reading CTP (`--condition text`, [training](#2-training)). The addressee evaluation reads the concurrent-distractor transmissions (`--tag _conc`, [evaluation](#who-is-the-transmission-for)). The `--p-null 0.2 --p-maintain 0.2` defaults of `traj_v2` are the corrected "not for us" labels; checkpoints without `zfix` in their name predate them.
 
 ### The final SBM: callsign contrast, then handoff phrases
 
@@ -110,7 +110,7 @@ uv run python -m atc_forecast.evaluation.compose_v2 --sbm runs/v2/sbm_jacktol_ho
     --only composed mode anchors_composed --per-message results/v2/eval_ho_s0.npz --out results/v2/eval_ho_s0.json
 ```
 
-`--cs-match` adds two deterministic features per transcript token: whether it belongs to the best in-order alignment of the aircraft's own callsign within the first eight words, and the share of callsign tokens that alignment matches. `--resume` continues from `<out>.resume.pt`, written at every validation, so a run survives a restart. Each checkpoint records its own addressee prior (`addressed_prior`, 0.7 with contrast messages), which `addressee_v2` and `real_v2` read.
+`--cs-match` adds two deterministic features per transcript token: whether it belongs to the best in-order alignment of the aircraft's own callsign within the first eight words, and the share of callsign tokens that alignment matches. `--resume` continues from `<out>.resume.pt`, written at every validation, so a run survives a restart. Each checkpoint records its own addressee prior (`addressed_prior`, 0.7 with contrast transmissions), which `addressee_v2` and `real_v2` read.
 
 ## 1. Data
 
@@ -198,8 +198,8 @@ Logging is off by default. Turn it on per run with `--wandb`, or for every run o
 | `val/energy_h`, `val/energy_v`, `val/select` (CTP) | proper scores; `select` picks the checkpoint |
 | `val/ade_h` against `val/minade6_h` | a gap means several modes are kept; no gap means mode collapse |
 | `val/cov50`, `val/cov90`, `cal/coverage90`, `cal/spread_skill` | calibration overall and by lead time; a dip at short leads points to the noise floor |
-| `progress/*`, `running/*` (evaluations) | messages done, running energy per condition |
-| `eval/scores` table, `eval/coverage_*` | every condition × message variant |
+| `progress/*`, `running/*` (evaluations) | transmissions done, running energy per condition |
+| `eval/scores` table, `eval/coverage_*` | every condition × transmission variant |
 
 ## 4. Evaluation
 
@@ -217,7 +217,7 @@ uv run python scripts/analyze_composition_v2.py --pm results/v2/eval_zfix_s0.npz
 Options:
 - `--only <conditions>` restricts a run (for sweeps);
 - `--method heun` switches the flow sampler;
-- `--per-message` keeps one record per message: the SBM's mode probability and margin, whether the mode is right, the distinct interpretations among the K draws, and each condition's energy score and ADE.
+- `--per-message` keeps one record per transmission: the SBM's mode probability and margin, whether the mode is right, the distinct interpretations among the K draws, and each condition's energy score and ADE.
 
 `analyze_composition_v2.py` bins those records by SBM confidence, splits them by right or wrong mode, and gives paired differences between conditions with bootstrap intervals.
 
@@ -231,7 +231,7 @@ Options:
 | `kinematic_mode`, `kinematic_true` | the instruction-aware rule, on the SBM mode and on the true interpretation |
 | `mdn_*`, `anchors_*` | the mixture heads, given the true interpretation (`oracle`) or on the same K SBM samples (`composed`) |
 
-Every condition is scored by message variant (own, maintain, own_other, other), with calibration by lead time and PIT and rank histograms. All noise is seeded per (window, interpretation, sample), so results are the same across batch sizes and devices. The estimators are described in [results.md](results.md#metrics).
+Every condition is scored by transmission variant (own, maintain, own_other, other), with calibration by lead time and PIT and rank histograms. All noise is seeded per (window, interpretation, sample), so results are the same across batch sizes and devices. The estimators are described in [results.md](results.md#metrics).
 
 Sweeps change one factor at a time: K × S at 72 samples, Heun at 32 steps, the per-step CTP, and each SBM ablation. They run on 2,000 test windows; `compose_full_*` repeats the K × S and Heun runs on the full test set.
 
@@ -239,12 +239,12 @@ Sweeps change one factor at a time: K × S at 72 samples, Heun at 32 steps, the 
 WANDB=1 bash scripts/run_v2.sh sweeps        # -> results/v2/compose_<tag>.json
 ```
 
-### Who is the message for
+### Who is the transmission for
 
 On a real frequency each transmission is for one of N aircraft. `addressee_v2.py` works in three steps:
-1. it scores the message against every aircraft on frequency with the SBM;
-2. it divides out the training prior (the share of training messages that are "for me": 0.8 for the base SBM, 0.7 with contrast messages);
-3. joint addressee inference: each message addresses at most one aircraft, `P(a) = L_a / (Σ_b L_b + L_off)`, and each aircraft's composition is gated by its share.
+1. it scores the transmission against every aircraft on frequency with the SBM;
+2. it divides out the training prior (the share of training transmissions that are "for me": 0.8 for the base SBM, 0.7 with contrast transmissions);
+3. joint addressee inference: each transmission addresses at most one aircraft, `P(a) = L_a / (Σ_b L_b + L_off)`, and each aircraft's composition is gated by its share.
 
 Scenes are built from the N aircraft whose windows are closest in time on the same day.
 
@@ -259,7 +259,7 @@ uv run python -m atc_forecast.evaluation.addressee_v2 --sbm runs/v2/sbm_jacktol_
 ```
 
 Conditions:
-- `independent`: each aircraft reads the message alone;
+- `independent`: each aircraft reads the transmission alone;
 - `prior`: the 1/N prior, without competition;
 - `scene`: the resolution;
 - `scene_hist`: the resolution, with no-motion readings sent to the history-only model;
@@ -301,7 +301,7 @@ uv run pytest -q              # all tests, a few seconds; no data, checkpoints o
   - exact integration;
   - turn tracking;
   - the external interface.
-- **Atoms and messages:**
+- **Atoms and transmissions:**
   - grids and relative turns;
   - word errors;
   - confusable callsigns;
@@ -348,9 +348,9 @@ bash scripts/run_v2.sh sweeps      # composition sweeps (K x S, sampler, CTP and
 | CTP `--nfe`, `--method` | 12, euler | sampler steps; too few pull samples toward the mean; Heun with 32 steps is calibrated |
 | CTP/MDN `--basis` | pca | PCA of the training residuals, or quarter-wave sines with the same count per axis |
 | CTP `--time-sampling` | logit_normal | more training at mid flow times |
-| CTP `--p-null` / `--p-maintain` | 0.2 / 0.2 | how often any window is shown a message that is not about its motion, independently of the window (so "not ours" teaches the history-only answer) / how often a maneuver's instruction carries a MAINTAIN clause on a steady axis |
+| CTP `--p-null` / `--p-maintain` | 0.2 / 0.2 | how often any window is shown a transmission that is not about its motion, independently of the window (so "not ours" teaches the history-only answer) / how often a maneuver's instruction carries a MAINTAIN clause on a steady axis |
 | CTP `--ema` | 0.999 | the evaluated weights; validation lags early |
 | SBM `--factorization` | anyorder | exact joint; independent is the cheap ablation |
-| SBM `--profile` | jacktol | which recognizer channel's messages |
+| SBM `--profile` | jacktol | which recognizer channel's transmissions |
 | composition `--k`, `--s` | 12, 6 | interpretations and futures per interpretation; anything above one interpretation does about as well |
 | all `--lr`, `--steps`, `--batch`, `--d` | 3e-4, 60k/40k, 256/512, 128 | standard |

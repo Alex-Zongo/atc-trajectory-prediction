@@ -6,7 +6,7 @@ Predicting where an aircraft will be over the next minute, from its ADS-B track 
 
 Conflict detection, arrival sequencing and separation all rest on predicting each aircraft's near-term trajectory. Over a minute or two, that trajectory is driven by controller instructions such as *turn left heading 270* or *descend and maintain 5,000*. An instruction is the strongest single cue to what an aircraft is about to do, often well before the change shows up on surveillance.
 
-Instructions reach a ground system only as voice. Automatic speech recognition (ASR) confuses digits, drops words, swaps *climb* and *descend*, and often loses the callsign that says who the message is for. A predictor that takes the transcript at face value inherits those errors without knowing it.
+Instructions reach a ground system only as voice. Automatic speech recognition (ASR) confuses digits, drops words, swaps *climb* and *descend*, and often loses the callsign that says who the transmission is for. A predictor that takes the transcript at face value inherits those errors without knowing it.
 
 This project keeps track of how uncertain the instruction is, and of who it is for, and carries that uncertainty into the predicted trajectories.
 
@@ -20,7 +20,7 @@ p(Y | O, X)  ≈  Σ_Z  q_φ(Z | O, X) · p_θ(Y | X, Z)
 |---|---|
 | `O` | the transcript, one recognizer confidence per word |
 | `X` | the aircraft's last 30 s of ADS-B at 1 Hz, and its type |
-| `Z` | the interpretation of the message: is it for this aircraft, and what lateral, vertical and speed change it asks for |
+| `Z` | the interpretation of the transmission: is it for this aircraft, and what lateral, vertical and speed change it asks for |
 | `Y` | the next 60 s of flight |
 
 ```
@@ -31,11 +31,11 @@ history X  ─┬─────────────────────
 
 - The **semantic belief model** gives a distribution over interpretations. It is not just a best guess, so a misheard *five* or a clipped callsign stays visible as uncertainty. It compares the callsign it hears with the aircraft's own ADS-B callsign.
 - The **conditional trajectory predictor** is a rectified flow on 18 trajectory-shape coefficients (a PCA basis of the training futures). It gives the spread that remains once the instruction is known: pilot delay, rates, wind and performance.
-- **Composition** draws several interpretations and several future trajectories under each. On a frequency with several aircraft, joint addressee inference uses the fact that a message addresses at most one of them, so each aircraft's prediction takes only its share of the instruction.
+- **Composition** draws several interpretations and several future trajectories under each. On a frequency with several aircraft, joint addressee inference uses the fact that a transmission addresses at most one of them, so each aircraft's prediction takes only its share of the instruction.
 
-On the synthetic-message test set (real ADS-B, transcripts simulated from a fitted recognizer channel), errors are energy scores in metres, lower is better. Means over three training runs:
+On the synthetic test set (real ADS-B, transcripts simulated from a fitted recognizer channel), errors are energy scores in metres, lower is better. Means over three training runs:
 
-| | own maneuver | all messages | 90 % coverage |
+| | own maneuver | all transmissions | 90 % coverage |
 |---|---|---|---|
 | history only (ignores the radio) | 3,202 | 2,988 | 0.85 |
 | CTP conditioned on the transcript directly | 2,187 | 2,751 | 0.85 |
@@ -106,7 +106,7 @@ uv run python -m atc_forecast.evaluation.real_v2 \
     --out results/real.json --per-message results/real_messages.jsonl
 ```
 
-The input format, what a matched set does and does not measure, and the checks behind it are in [docs/v2/real-data.md](docs/v2/real-data.md). One of those checks: on test messages rebuilt from raw ADS-B, the real-data path reproduces the training inputs bit for bit, and reproduces the test evaluation's scores exactly.
+The input format, what a matched set does and does not measure, and the checks behind it are in [docs/v2/real-data.md](docs/v2/real-data.md). One of those checks: on test transmissions rebuilt from raw ADS-B, the real-data path reproduces the training inputs bit for bit, and reproduces the test evaluation's scores exactly.
 
 ## Documentation
 
@@ -114,7 +114,7 @@ The input format, what a matched set does and does not measure, and the checks b
 |---|---|
 | [docs/v2/real-data.md](docs/v2/real-data.md) | running and evaluating on real transcripts and ADS-B |
 | [docs/v2/results.md](docs/v2/results.md) | results, ablations, calibration, where the error remains, open directions |
-| [docs/v2/pipeline.md](docs/v2/pipeline.md) | rebuilding everything: data, messages, training, W&B, evaluation, diagnosis, hyperparameters, code map |
+| [docs/v2/pipeline.md](docs/v2/pipeline.md) | rebuilding everything: data, transmissions, training, W&B, evaluation, diagnosis, hyperparameters, code map |
 | [docs/v1.md](docs/v1.md) | the v1 two-stage model |
 
 ## Repository layout
@@ -140,7 +140,7 @@ v1 modules (`models/stage1.py`, `models/stage2.py`, `data/windows.py`, `evaluati
 
 - Raw OpenSky ADS-B is never redistributed: OpenSky's terms restrict it. The processed 1 Hz windows are shared only through the gated Hugging Face dataset, and GitHub releases carry the model weights only.
 - Recorded controller speech (LiveATC) is used for evaluation only, under personal research use. Neither audio nor transcripts are shipped, and results are reported as aggregates.
-- The recognizer channel is fitted on ATCO2 and ATCOSIM benchmark transcripts. The recordings, their labels and the fitted word-confidence file are for internal research use and are not shipped; without them the message builder uses a parametric word-confidence fallback of the same shape.
+- The recognizer channel is fitted on ATCO2 and ATCOSIM benchmark transcripts. The recordings, their labels and the fitted word-confidence file are for internal research use and are not shipped; without them the transmission builder uses a parametric word-confidence fallback of the same shape.
 
 ## Citation
 

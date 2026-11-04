@@ -81,11 +81,11 @@ Every condition runs on the same windows with the same seeds:
 
 | condition | |
 |---|---|
-| `composed` | the main model: the SBM reads the message, 12 interpretations × 6 futures |
-| `known` | the same, with "this message is for this aircraft" given, as the matching asserts |
+| `composed` | the main model: the SBM reads the transmission, 12 interpretations × 6 futures |
+| `known` | the same, with "this transmission is for this aircraft" given, as the matching asserts |
 | `mode` | the SBM's single most likely interpretation, 72 futures under it |
 | `hist_only` | the history-only predictor (`--hist-only`): `composed − hist_only` is what the radio adds |
-| `scene` | with `--scene-radius-nm R`: every airborne aircraft within R nm (up to `--max-aircraft`, 16) also hears the message; they compete for it, and the addressee's forecast takes only its share |
+| `scene` | with `--scene-radius-nm R`: every airborne aircraft within R nm (up to `--max-aircraft`, 16) also hears the transmission; they compete for it, and the addressee's forecast takes only its share |
 
 `results/real.json` holds:
 - counts and rejection reasons;
@@ -113,7 +113,7 @@ out = fc.forecast(states, icao24="a1b2c3", t0=1767225612.4, words=words)
 
 `forecast` returns:
 - `readings`: the beam's top interpretations as `(text, probability, atoms)`;
-- `status`: the semantic model's split over who the message is for;
+- `status`: the semantic model's split over who the transmission is for;
 - `interpretations`: the 12 drawn readings;
 - `velocities` [72, 60, 3]: track frame, m/s;
 - `lat`, `lon`, `alt_ft` [72, 60];
@@ -121,7 +121,7 @@ out = fc.forecast(states, icao24="a1b2c3", t0=1767225612.4, words=words)
 
 By default it needs only the history (`future=False`), so it also runs live. For batches, the lower-level calls are `windows(states, requests)`, `batch(windows, rows, messages)`, `compose(b)`, `readings(b)`, `status(b)`, `history_only(b)` and `to_geo(...)`. `evaluation/real_v2.py` shows them in use.
 
-The aircraft's own callsign comes from its ADS-B broadcast at t0. The semantic model compares it with the callsign heard in the message, so the broadcast must be the flight's current one: airframes fly several flight numbers a day.
+The aircraft's own callsign comes from its ADS-B broadcast at t0. The semantic model compares it with the callsign heard in the transmission, so the broadcast must be the flight's current one: airframes fly several flight numbers a day.
 
 ## What a matched set measures
 
@@ -130,16 +130,16 @@ A transmission matched to an aircraft by callsign and time is a valid end-to-end
 What it does not separate:
 
 - **Instructions acted on later than 60 s, or not at all** (readbacks, "expect" clauses, pilot discretion) count as forecast error, as they would in operation. A `group` field for clearance type or readback shows how much.
-- **Messages that are not instructions** (frequency changes, traffic information) belong in the set too. The model should forecast "no change" for them, and the `hist_only` comparison shows whether it does.
+- **Transmissions that are not instructions** (frequency changes, traffic information) belong in the set too. The model should forecast "no change" for them, and the `hist_only` comparison shows whether it does.
 - **Semantic accuracy** (did the SBM read the instruction right) needs a human label per transmission. Without one, `readings` in the per-message file are the place to judge it.
-- **Which aircraft the message was for**, in the scene condition, is taken from the matching. A wrong match shows up as a low `p_addressee` with the true aircraft elsewhere.
+- **Which aircraft the transmission was for**, in the scene condition, is taken from the matching. A wrong match shows up as a low `p_addressee` with the true aircraft elsewhere.
 
-On the synthetic test set the main model scores 1,675 m on own-maneuver messages, against 3,202 for the history-only model. On real speech the gap shrinks by however much the recognizer's real errors exceed the simulated channel; the unknown-token share and `status_mean` are the first signs of it.
+On the synthetic test set the main model scores 1,675 m on own-maneuver transmissions, against 3,202 for the history-only model. On real speech the gap shrinks by however much the recognizer's real errors exceed the simulated channel; the unknown-token share and `status_mean` are the first signs of it.
 
 ## Checks behind the interface
 
-- **Same windows as training.** 300 test messages were rebuilt from raw OpenSky files through `Forecaster.windows`. History, context, centering, future, aircraft type, tokens and confidences all equal the training store exactly (largest difference 3e-8, the 1/255 confidence quantization).
-- **Same scores as the test evaluation.** On the 41 of those messages that the stored test evaluation also scored, with the same seeds, the composed energy score matches `compose_v2` to 0.00 m.
+- **Same windows as training.** 300 test transmissions were rebuilt from raw OpenSky files through `Forecaster.windows`. History, context, centering, future, aircraft type, tokens and confidences all equal the training store exactly (largest difference 3e-8, the 1/255 confidence quantization).
+- **Same scores as the test evaluation.** On the 41 of those transmissions that the stored test evaluation also scored, with the same seeds, the composed energy score matches `compose_v2` to 0.00 m.
 - **Tests.** `tests/test_inference_v2.py` covers:
   - word normalization keeping its confidences;
   - the history-only windows equal the full ones;
@@ -150,6 +150,6 @@ On the synthetic test set the main model scores 1,675 m on own-maneuver messages
 
 ## Known differences from the training data
 
-- **Callsigns in the training labels.** About a fifth of training windows carry a callsign from earlier in the airframe's day, not the flight's current one: the window builder labels a leg with its first callsign. The synthetic messages use the same label, so training is self-consistent. On real data, the interface uses the broadcast callsign, which is correct.
+- **Callsigns in the training labels.** About a fifth of training windows carry a callsign from earlier in the airframe's day, not the flight's current one: the window builder labels a leg with its first callsign. The synthetic transmissions use the same label, so training is self-consistent. On real data, the interface uses the broadcast callsign, which is correct.
 - **Recognizer style.** Training transcripts are spoken-form, from a channel fitted on an ATC-tuned Whisper. Other recognizers write numerals, abbreviations or casing differently. Normalization covers the common cases; watch the unknown-token share.
 - **Airspace.** Training ADS-B is five days of the San Francisco Bay Area. Inputs use fixed physical scales, not dataset statistics, so other airspaces need no re-normalization. Different procedures and traffic mixes can still shift the error.
