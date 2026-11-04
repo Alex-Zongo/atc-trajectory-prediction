@@ -1,5 +1,7 @@
 """End-to-end smoke tests: data build, both models, scoring, recalibration."""
 
+import json
+
 import numpy as np
 import pandas as pd
 import torch
@@ -83,6 +85,25 @@ def test_channel_profile_loads():
     ch = load_channel("jacktol")
     assert ch.spoken and ch.scaling in ("fixed", "by_degradation")
     assert 0.0 <= ch.rate("altitude", "dropout") <= 1.0
+
+
+def test_channel_benchmark_error_modes(tmp_path):
+    """Insertion, direction omission and error-linked confidence, at forced rates."""
+    profile = {"name": "forced", "fields": {"direction": {"omit": 1.0}},
+               "insertion": {"altitude": 1.0},
+               "confidence": {"kind": "conditional", "noise": 0.0,
+                              "clean": {"kind": "fixed", "value": 0.9},
+                              "error": {"kind": "fixed", "value": 0.4}}}
+    path = tmp_path / "forced.json"
+    path.write_text(json.dumps(profile))
+    seg = {"lateral": "L", "vertical": "level", "speed": "const",
+           "hdg_exit": 270.0, "alt_exit_ft": 11000.0, "spd_exit_kt": 250.0}
+    o = corrupt_segment(seg, NoiseConfig(profile=str(path)), np.random.default_rng(0))
+    assert "left" not in o["noisy_directive"]                 # the direction word is lost
+    assert "maintain" in o["noisy_directive"]                 # an altitude nobody issued
+    assert {"direction_omit", "insert_altitude"} <= set(o["corrupted"].split("|"))
+    assert np.isnan(o["heard_alt_ft"])                        # still scored as no altitude
+    assert o["asr_confidence"] == 0.4                         # confidence follows the error
 
 
 def test_last_valid_index_handles_internal_gaps():

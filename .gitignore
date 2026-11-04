@@ -26,3 +26,15 @@ dist/
 
 # Release assets staged by scripts/artifacts.py
 /.artifacts/
+
+# Private working notes (future directions, drafts).
+/notes/
+
+# v2 figures, paper drafts and exploration stay private until the paper is out. Only what
+# another team needs to understand, evaluate and extend the models is tracked.
+/figures/v2/
+/paper/
+/output/
+/gpt_discussion_summary.md
+/scripts/export_*.py
+/scripts/explore_*.py

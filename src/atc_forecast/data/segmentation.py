@@ -130,18 +130,17 @@ def _merge_short(state, t, min_s):
     return state
 
 
-def _segment_track(sub: pd.DataFrame, params: SegParams) -> list[dict]:
-    t = sub["time_position"].to_numpy(float)
-    track = sub["true_track"].to_numpy(float)
-    alt = sub["geo_altitude"].to_numpy(float)
-    vel = sub["velocity"].to_numpy(float)
-    lat = sub["latitude"].to_numpy(float)
-    lon = sub["longitude"].to_numpy(float)
-    phase = sub["phase"].to_numpy() if "phase" in sub else np.full(len(sub), "")
+def track_signals(sub: pd.DataFrame, params: SegParams = SegParams()) -> dict:
+    """Every intermediate signal the segmenter derives from one contiguous track.
 
-    track_sm = _smooth_track(track, params.smooth_win)
-    alt_sm = _smooth(alt, params.smooth_win)
-    vel_sm = _smooth(vel, params.smooth_win)
+    The smoothed channels, their rates, the per-point labels before merging, and the merged
+    state. `_segment_track` cuts segments from exactly this, so anything that displays the
+    segmentation (the app's dataset walkthrough) shows the real computation.
+    """
+    t = sub["time_position"].to_numpy(float)
+    track_sm = _smooth_track(sub["true_track"].to_numpy(float), params.smooth_win)
+    alt_sm = _smooth(sub["geo_altitude"].to_numpy(float), params.smooth_win)
+    vel_sm = _smooth(sub["velocity"].to_numpy(float), params.smooth_win)
 
     turn_rate = np.gradient(track_sm, t)
     vspeed = np.gradient(alt_sm, t)
@@ -153,10 +152,22 @@ def _segment_track(sub: pd.DataFrame, params: SegParams) -> list[dict]:
                         np.where(vspeed < -params.vs_th, "descend", "level"))
     speed = np.where(accel > params.accel_th, "accel",
                      np.where(accel < -params.accel_th, "decel", "const"))
+    raw_state = np.array([f"{a}|{b}|{c}" for a, b, c in zip(lateral, vertical, speed)])
+    return {"t": t, "track_sm": track_sm, "alt_sm": alt_sm, "vel_sm": vel_sm,
+            "turn_rate": turn_rate, "vspeed": vspeed, "accel": accel,
+            "lateral": lateral, "vertical": vertical, "speed": speed,
+            "raw_state": raw_state, "state": _merge_short(raw_state, t, params.min_seg_s)}
 
-    state = _merge_short(
-        np.array([f"{a}|{b}|{c}" for a, b, c in zip(lateral, vertical, speed)]),
-        t, params.min_seg_s)
+
+def _segment_track(sub: pd.DataFrame, params: SegParams) -> list[dict]:
+    track = sub["true_track"].to_numpy(float)
+    lat = sub["latitude"].to_numpy(float)
+    lon = sub["longitude"].to_numpy(float)
+    phase = sub["phase"].to_numpy() if "phase" in sub else np.full(len(sub), "")
+
+    sig = track_signals(sub, params)
+    t, track_sm, alt_sm, vel_sm = sig["t"], sig["track_sm"], sig["alt_sm"], sig["vel_sm"]
+    state = sig["state"]
 
     icao = sub["icao24"].iloc[0]
     callsign = str(sub["callsign"].iloc[0]).strip() if "callsign" in sub else icao

@@ -1,0 +1,263 @@
+{
+  "name": "jacktol_medium_bench",
+  "spoken": true,
+  "scaling": "fixed",
+  "source": "fitted by channel.fit_labels from the labelled benchmark: recognizer jacktol_medium, sets atco2_1h, atcosim_250, 810 recordings. Rates are per reference value; insertion is per recording (a recording can hold an instruction and its readback). correction_rate is a prior, not measured. OPTIMISTIC: jacktol models trained on most ATCO2 clips.",
+  "full_dropout": 0.0,
+  "verb_flip": 0.0042,
+  "correction_rate": 0.03,
+  "keyword_dropout": 0.0044,
+  "fields": {
+    "heading": {
+      "dropout": 0.0088,
+      "number_dropout": 0.0,
+      "value_error": 0.0
+    },
+    "altitude": {
+      "dropout": 0.066,
+      "number_dropout": 0.0,
+      "value_error": 0.066
+    },
+    "speed": {
+      "dropout": 0.0374,
+      "number_dropout": 0.0,
+      "value_error": 0.033
+    },
+    "direction": {
+      "dropout": 0.0,
+      "flip": 0.0042,
+      "omit": 0.0084
+    }
+  },
+  "insertion": {
+    "heading": 0.0049,
+    "altitude": 0.0136,
+    "speed": 0.0,
+    "direction": 0.0
+  },
+  "confidence": {
+    "kind": "conditional",
+    "clean": {
+      "kind": "empirical_bins",
+      "bins": [
+        {
+          "mean_confidence": 0.8489,
+          "count": 193
+        },
+        {
+          "mean_confidence": 0.9348,
+          "count": 193
+        },
+        {
+          "mean_confidence": 0.9681,
+          "count": 193
+        },
+        {
+          "mean_confidence": 0.9914,
+          "count": 193
+        }
+      ],
+      "noise": 0.03,
+      "mean": 0.9358
+    },
+    "error": {
+      "kind": "fixed",
+      "value": 0.8496,
+      "noise": 0.05
+    },
+    "noise": 0.03
+  },
+  "surface": {
+    "garble": 0.0,
+    "filler": 0.0,
+    "word_drop": 0.0,
+    "truncation": 0.0
+  },
+  "usable_for_sampling": [],
+  "provisional": [
+    "speed"
+  ],
+  "measured": {
+    "heading": {
+      "wrong": {
+        "k": 0,
+        "n": 113,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0329
+        ]
+      },
+      "value_missing": {
+        "k": 0,
+        "n": 113,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0329
+        ]
+      },
+      "kind_lost": {
+        "k": 1,
+        "n": 113,
+        "rate": 0.0088,
+        "ci95": [
+          0.0016,
+          0.0484
+        ]
+      },
+      "dropped": {
+        "k": 1,
+        "n": 113,
+        "rate": 0.0088,
+        "ci95": [
+          0.0016,
+          0.0484
+        ]
+      }
+    },
+    "altitude": {
+      "wrong": {
+        "k": 7,
+        "n": 106,
+        "rate": 0.066,
+        "ci95": [
+          0.0324,
+          0.1301
+        ]
+      },
+      "value_missing": {
+        "k": 0,
+        "n": 106,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.035
+        ]
+      },
+      "kind_lost": {
+        "k": 0,
+        "n": 106,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.035
+        ]
+      },
+      "dropped": {
+        "k": 7,
+        "n": 106,
+        "rate": 0.066,
+        "ci95": [
+          0.0324,
+          0.1301
+        ]
+      }
+    },
+    "speed": {
+      "wrong": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "value_missing": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "kind_lost": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      },
+      "dropped": {
+        "k": 0,
+        "n": 6,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.3903
+        ]
+      }
+    },
+    "direction": {
+      "swapped": {
+        "k": 1,
+        "n": 238,
+        "rate": 0.0042,
+        "ci95": [
+          0.0007,
+          0.0234
+        ]
+      },
+      "dropped": {
+        "k": 2,
+        "n": 238,
+        "rate": 0.0084,
+        "ci95": [
+          0.0023,
+          0.0301
+        ]
+      }
+    },
+    "keyword_dropout": {
+      "k": 1,
+      "n": 225,
+      "rate": 0.0044,
+      "ci95": [
+        0.0008,
+        0.0247
+      ]
+    },
+    "insertion_per_recording": {
+      "heading": {
+        "k": 4,
+        "n": 810,
+        "rate": 0.0049,
+        "ci95": [
+          0.0019,
+          0.0126
+        ]
+      },
+      "altitude": {
+        "k": 11,
+        "n": 810,
+        "rate": 0.0136,
+        "ci95": [
+          0.0076,
+          0.0242
+        ]
+      },
+      "speed": {
+        "k": 0,
+        "n": 810,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0047
+        ]
+      },
+      "direction": {
+        "k": 0,
+        "n": 810,
+        "rate": 0.0,
+        "ci95": [
+          0.0,
+          0.0047
+        ]
+      }
+    }
+  }
+}

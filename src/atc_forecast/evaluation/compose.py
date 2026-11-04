@@ -92,10 +92,15 @@ def stage1_clearances(model, tokens, confidence, k, state=None):
 
 
 @torch.no_grad()
-def calibrated_cloud(flow, batch, clearances, exec_k, n_steps, lam, onset_alt, guidance=1.0):
-    """Positions [B, ., H, 3] pooled over clearances, each inflated before pooling."""
+def calibrated_cloud(flow, batch, clearances, exec_k, n_steps, lam, onset_alt, guidance=1.0,
+                     return_ctrl=False):
+    """Positions [B, ., H, 3] pooled over clearances, each inflated before pooling.
+
+    `return_ctrl` also returns the sampled controls [B, ., H, 4] in the same order. The
+    inflation acts on positions only, so these are the flow's own, uninflated controls.
+    """
     H = batch["fut_ctrl"].shape[1]
-    clouds = []
+    clouds, ctrls = [], []
     for dv in clearances:
         b = dict(batch)
         if dv is not None:
@@ -108,6 +113,9 @@ def calibrated_cloud(flow, batch, clearances, exec_k, n_steps, lam, onset_alt, g
                          onset_alt.repeat_interleave(exec_k)).reshape(B, exec_k, H, 3)
         mean = pos.mean(1, keepdim=True)
         clouds.append(mean + lam * (pos - mean))
+        ctrls.append(ctrl)
+    if return_ctrl:
+        return torch.cat(clouds, dim=1), torch.cat(ctrls, dim=1)
     return torch.cat(clouds, dim=1)
 
 
@@ -147,7 +155,7 @@ def compose(stage1, vocab, max_len, flow, npz, wj, idx, device, lam, profile="ja
         onset_alt = batch["past"][:, -1, 2] * ALT_SCALE_FT
         sub = wj.iloc[idx[loc]]
 
-        texts = []
+        texts, confs = [], []
         for r in sub.itertuples():
             seg = {c: getattr(r, c) for c in CLEAR_COLS}
             n = corrupt_segment(seg, NoiseConfig(profile=profile,
@@ -156,8 +164,10 @@ def compose(stage1, vocab, max_len, flow, npz, wj, idx, device, lam, profile="ja
             texts.append(augment_transcript(n["noisy_directive"], rng,
                                             leg_type=getattr(r, "leg_type", None),
                                             phase=getattr(r, "phase", None)))
+            confs.append(n["asr_confidence"])
         toks = torch.tensor([vocab.encode(t, max_len) for t in texts], device=device)
-        conf = torch.full((len(loc),), 0.82, device=device)
+        # the channel's own confidence for each transcript, as Stage 1 saw in training
+        conf = torch.tensor(confs, dtype=torch.float32, device=device)
         point, sampled = stage1_clearances(stage1, toks, conf, k, state=onset_state(batch))
 
         plans = {
