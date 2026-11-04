@@ -45,6 +45,7 @@ class SBMConfig:
     factorization: str = "anyorder"      # anyorder | independent | mixture
     n_mix: int = 4
     use_history: bool = True
+    cs_match: bool = False               # callsign-alignment features in the text encoder
 
 
 class SlotBlock(nn.Module):
@@ -76,7 +77,8 @@ class SBM(nn.Module):
         super().__init__()
         self.cfg = cfg
         d = cfg.d
-        self.text = TextEncoder(cfg.vocab_size, d, cfg.text_layers, dropout=cfg.dropout)
+        self.text = TextEncoder(cfg.vocab_size, d, cfg.text_layers, dropout=cfg.dropout,
+                                cs_match=cfg.cs_match)
         self.hist = HistoryEncoder(d, cfg.hist_layers, cfg.dropout) if cfg.use_history else None
         self.queries = nn.Parameter(torch.randn(4, d) * 0.02)
         self.reveal = nn.ModuleList([nn.Embedding(n + 1, d) for n in SIZES])  # last = [mask]

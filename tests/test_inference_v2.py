@@ -142,3 +142,20 @@ def test_real_eval_cli(tmp_path):
     assert set(res["by_condition"]) == {"composed", "known", "mode", "hist_only", "scene"}
     assert res["addressee"]["aircraft_on_frequency_mean"] == 2.0
     assert len((tmp_path / "pm.jsonl").read_text().splitlines()) == 2
+
+
+def test_callsign_matching_respects_token_boundaries():
+    from atc_forecast.inference.callsign import find_callsigns
+    c = ["UAL2", "UAL2437", "SKW514", "UAL2480", "DAL785"]
+    assert find_callsigns("17F1 80 knots, United 20367", c) == []          # not UAL2
+    m = find_callsigns("climb and maintain 5000 United 24-37 heavy", c)
+    assert [(x.callsign, x.role) for x in m] == [("UAL2437", "pilot")]
+    assert find_callsigns("Skywest 514.90, radar contact", c)[0].callsign == "SKW514"
+    assert find_callsigns("united twenty four thirty seven turn left", c)[0].role == "controller"
+    assert find_callsigns("NorCal, Delta seven eight five, with you", c)[0].role == "pilot"
+
+
+def test_group_form_numbers_become_digits():
+    toks, conf = words_to_tokens([("nineteen", 0.8), ("forty-nine", 0.6), ("twenty", 0.9)])
+    assert toks == ["one", "niner", "four", "niner", "two", "zero"]
+    assert conf == [0.8, 0.8, 0.6, 0.6, 0.9, 0.9]

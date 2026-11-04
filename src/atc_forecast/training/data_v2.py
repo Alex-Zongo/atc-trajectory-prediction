@@ -153,6 +153,9 @@ class MessageStore:
     """Precomputed messages for one channel profile, joined to the windows."""
 
     MIX = {"own": 0.5, "own_other": 0.2, "other": 0.2, "maintain": 0.1}
+    # with callsign-only negatives (messages --swap): "for another aircraft" keeps its 20 %
+    # for other instructions and adds 15 % of the aircraft's own instruction, other callsign
+    MIX_SWAP = {"own": 0.4, "own_other": 0.2, "other": 0.15, "swap": 0.15, "maintain": 0.1}
 
     def __init__(self, data_dir, profile="jacktol", windows: WindowStore | None = None):
         d = Path(data_dir) / f"messages_{profile}"
@@ -168,11 +171,21 @@ class MessageStore:
         self.split = np.where(self.windows.ok[self.window_id],
                               self.windows.meta["split"].to_numpy()[self.window_id], "excluded")
 
+    @property
+    def mix(self):
+        return self.MIX_SWAP if (self.variant == "swap").any() else self.MIX
+
+    @property
+    def addressed_share(self):
+        """Share of training messages addressed to the aircraft (the prior that addressee
+        resolution divides out)."""
+        return 1.0 - sum(v for k, v in self.mix.items() if k in ("other", "swap"))
+
     def weights(self, rows):
         """Sampling weights giving the target variant mix within `rows`."""
         v = self.variant[rows]
         w = np.zeros(len(rows))
-        for name, share in self.MIX.items():
+        for name, share in self.mix.items():
             m = v == name
             if m.any():
                 w[m] = share / m.sum()

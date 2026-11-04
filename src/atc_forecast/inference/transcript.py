@@ -55,7 +55,7 @@ def normalize_word(word: str) -> list[str]:
             part = re.sub(r"^fl(\d{2,3})$", r"FL\1", part)
             out += speak_numbers(part).lower().split()
         else:
-            out.append(part)
+            out.append(ALIASES.get(part, part))
     return out
 
 
@@ -76,7 +76,41 @@ def words_to_tokens(words, default_conf: float = 1.0):
             for t in tokenize(nw):
                 toks.append(t)
                 conf.append(p)
-    return toks, conf
+    return digit_by_digit(toks, conf)
+
+
+TEENS = {"thirteen": "3", "fourteen": "4", "fifteen": "5", "sixteen": "6", "seventeen": "7",
+         "eighteen": "8", "nineteen": "9"}
+TENS = {"twenty": "two", "thirty": "three", "forty": "four", "fifty": "five", "sixty": "six",
+        "seventy": "seven", "eighty": "eight", "ninety": "niner"}
+UNIT_WORDS = {"one", "two", "three", "four", "five", "six", "seven", "eight", "niner"}
+
+
+def digit_by_digit(toks, conf):
+    """Group-form numbers ("nineteen forty niner") as the digit-by-digit words training
+    used ("one niner four niner"). "ten" to "twelve" stay words: they occur as such in
+    training ("traffic ten o'clock"). A merged token keeps the lower confidence."""
+    out, oc, i = [], [], 0
+    digit = {v: v for v in UNIT_WORDS}
+    names = {"3": "three", "4": "four", "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "niner"}
+    while i < len(toks):
+        t, p = toks[i], conf[i]
+        if t in TEENS:
+            out += ["one", names[TEENS[t]]]
+            oc += [p, p]
+        elif t in TENS:
+            if i + 1 < len(toks) and toks[i + 1] in digit:
+                out += [TENS[t], toks[i + 1]]
+                oc += [p, min(p, conf[i + 1])]
+                i += 1
+            else:
+                out += [TENS[t], "zero"]
+                oc += [p, p]
+        else:
+            out.append(t)
+            oc.append(p)
+        i += 1
+    return out, oc
 
 
 def encode(vocab: Vocab, toks, conf, max_len: int = MAX_LEN):

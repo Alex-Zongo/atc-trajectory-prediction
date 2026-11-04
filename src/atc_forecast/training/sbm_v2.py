@@ -8,6 +8,17 @@ mix (own 50 %, own-other 20 %, other aircraft 20 %, maintain 10 %). Selection is
 validation negative log-likelihood of the full interpretation in the canonical order, on
 a fixed message subset drawn with the same mix. After training, one temperature per slot
 is fitted on validation (teacher-forced canonical conditionals) and stored in the model.
+
+Fine-tuning (--init runs/v2/sbm_...pt): start from a trained SBM on an extended message set
+(data/messages.py --swap --real-phrasing --vocab-extend). The vocabulary may only grow at
+the end; old token rows, the [CS]/[SEP] rows and every other weight are copied, new word
+rows start at the default initialization, and the confidence projection gains zero
+columns for the callsign-match features (--cs-match), so the fine-tune starts from exactly
+the trained model's function.
+
+    python -m atc_forecast.training.sbm_v2 --profile jacktol_cs --cs-match \
+        --init runs/v2/sbm_jacktol_anyorder_s0.pt --steps 10000 --lr 1e-4 --warmup 500 \
+        --out runs/v2/sbm_jacktol_cs_ft_s0.pt
 """
 
 import argparse
@@ -107,6 +118,34 @@ def fit_temperatures(model, ms, rows, device):
     return dict(zip(SLOT_NAMES, temps))
 
 
+def init_from(model, path, vocab):
+    """Copy a trained SBM into `model`, which may have a longer vocabulary (old ids first)
+    and callsign-match inputs."""
+    ck = torch.load(path, map_location="cpu", weights_only=False)
+    old_vocab = ck["vocab"]
+    if list(vocab[:len(old_vocab)]) != list(old_vocab):
+        raise SystemExit(f"{path}: its vocabulary is not a prefix of the new one; build the "
+                         "messages with --vocab-extend <its vocab.json>")
+    Vo, Vn = len(old_vocab), len(vocab)
+    new = model.state_dict()
+    for k, v in ck["state"].items():
+        if k == "text.tok.weight":                       # rows: words, then [CS], [SEP]
+            w = new[k].clone()
+            w[:Vo] = v[:Vo]
+            w[Vn:Vn + 2] = v[Vo:Vo + 2]
+            new[k] = w
+        elif k == "text.conf.0.weight" and v.shape != new[k].shape:
+            w = torch.zeros_like(new[k])
+            w[:, :v.shape[1]] = v
+            new[k] = w
+        elif k in new and new[k].shape == v.shape:
+            new[k] = v
+        else:
+            raise SystemExit(f"cannot initialize {k}: {tuple(v.shape)} vs {tuple(new[k].shape)}")
+    model.load_state_dict(new)
+    print(f"initialized from {path}: vocabulary {Vo} -> {Vn}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -116,6 +155,9 @@ def main():
     ap.add_argument("--factorization", default="anyorder",
                     choices=("anyorder", "independent", "mixture"))
     ap.add_argument("--no-history", action="store_true")
+    ap.add_argument("--cs-match", action="store_true",
+                    help="callsign-alignment features in the text encoder")
+    ap.add_argument("--init", help="fine-tune from this SBM checkpoint")
     ap.add_argument("--d", type=int, default=128)
     ap.add_argument("--steps", type=int, default=40000)
     ap.add_argument("--batch", type=int, default=512)
@@ -126,6 +168,8 @@ def main():
     ap.add_argument("--eval-n", type=int, default=20000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default=None)
+    ap.add_argument("--resume", action="store_true",
+                    help="continue from <out>.resume.pt, written at every validation")
     add_args(ap)
     a = ap.parse_args()
 
@@ -139,21 +183,35 @@ def main():
     val = np.sort(np.random.default_rng(123).choice(va, min(a.eval_n, len(va)), replace=False,
                                                      p=ms.weights(va)))
     model = SBM(SBMConfig(vocab_size=len(ms.vocab), d=a.d, factorization=a.factorization,
-                          use_history=not a.no_history)).to(device)
+                          use_history=not a.no_history, cs_match=a.cs_match))
+    if a.init:
+        init_from(model, a.init, ms.vocab)
+    model = model.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=a.wd)
     sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: min(1.0, (s + 1) / a.warmup) * 0.5
                                               * (1 + math.cos(math.pi * min(s, a.steps) / a.steps)))
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    log = open(out.with_suffix(".log.jsonl"), "w")
+    state_path = out.with_suffix(".resume.pt")
+    best, best_state, t0, run, start = float("inf"), None, time.time(), [], 1
+    if a.resume and state_path.exists():
+        st = torch.load(state_path, map_location=device, weights_only=False)
+        model.load_state_dict(st["model"])
+        opt.load_state_dict(st["opt"])
+        sched.load_state_dict(st["sched"])
+        rng.bit_generator.state = st["rng"]
+        torch.set_rng_state(st["torch_rng"])
+        best, best_state, run, start = st["best"], st["best_state"], st["run"], st["step"] + 1
+        t0 -= st["seconds"]
+        print(f"resumed from {state_path} at step {st['step']}", flush=True)
+    log = open(out.with_suffix(".log.jsonl"), "a" if start > 1 else "w")
     print(f"SBM {a.factorization}: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M "
           f"parameters on {device}, {len(tr)} train messages", flush=True)
     n_par = sum(p.numel() for p in model.parameters())
     tracker = Tracker(a.wandb, a.wandb_project, a.run_name or out.stem,
                       {**vars(a), "n_params": n_par}, group=a.wandb_group,
                       tags=["sbm", a.factorization, a.profile])
-    best, best_state, t0, run = float("inf"), None, time.time(), []
-    for step in range(1, a.steps + 1):
+    for step in range(start, a.steps + 1):
         model.train()
         b = ms.batch(rng.choice(tr, a.batch, p=w), device)
         loss, per = model.loss(b)
@@ -181,6 +239,13 @@ def main():
             tracker.log({f"val/{k}": v for k, v in sc.items()}, step)
             if sc["nll"] < best:
                 best, best_state = sc["nll"], copy.deepcopy(model.state_dict())
+            # written to a temporary file first, so an interruption mid-write keeps the last one
+            torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
+                        "sched": sched.state_dict(), "rng": rng.bit_generator.state,
+                        "torch_rng": torch.get_rng_state(), "best": best,
+                        "best_state": best_state, "run": run, "step": step,
+                        "seconds": time.time() - t0}, state_path.with_suffix(".tmp"))
+            state_path.with_suffix(".tmp").replace(state_path)
     model.load_state_dict(best_state)
     temps = fit_temperatures(model, ms, val, device)
     sc = evaluate(model, ms, val, device)
@@ -192,7 +257,9 @@ def main():
                 "mode_exact": (zb[:, 0] == b["z"]).all(1).float().mean().item()}
     print("temperatures", temps, "calibrated val", sc, cert)
     save_sbm(model, out, {"args": vars(a), "val": sc, "temperatures": temps,
-                          "vocab": ms.vocab, "beam": cert})
+                          "vocab": ms.vocab, "beam": cert, "mix": ms.mix,
+                          "addressed_prior": ms.addressed_share})
+    state_path.unlink(missing_ok=True)
     tracker.summary({f"final/{k}": v for k, v in sc.items()}
                     | {f"final/T_{k}": v for k, v in temps.items()}
                     | {f"final/{k}": v for k, v in (cert or {}).items()})

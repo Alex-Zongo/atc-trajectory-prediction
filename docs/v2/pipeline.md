@@ -83,6 +83,35 @@ uv run python scripts/collect_results_v2.py --runs runs/v2 --results results/v2 
 
 The `--direct` model is the transcript-reading CTP (`--condition text`, [training](#2-training)). The addressee evaluation reads the concurrent-distractor messages (`--tag _conc`, [evaluation](#who-is-the-message-for)). The `--p-null 0.2 --p-maintain 0.2` defaults of `traj_v2` are the corrected "not for us" labels; checkpoints without `zfix` in their name predate them.
 
+### The final SBM: callsign contrast, then handoff phrases
+
+The SBM above is the *base* SBM. The paper's main results use the *final* SBM, built in two steps on top of the same trajectory models (results: [results.md](results.md#the-sbm-versions)):
+
+```bash
+# 1. contrast messages (own instruction, other callsign, labeled "other aircraft") and phrasing
+#    heard on the recorded NorCal frequency; vocabulary grown from the base one, old ids kept
+uv run python -m atc_forecast.data.messages --data data/v2 --profile jacktol --tag _cs --swap \
+    --real-phrasing 0.15 --vocab-extend data/v2/messages_jacktol/vocab.json
+uv run python -m atc_forecast.training.sbm_v2 --profile jacktol_cs --cs-match \
+    --out runs/v2/sbm_jacktol_cs_s0.pt --seed 0 --resume --wandb            # ~1.7 h, seeds 0-2
+
+# 2. generated handoffs (random facility and frequency), then a 10k-step fine-tune
+uv run python -m atc_forecast.data.messages --data data/v2 --profile jacktol --tag _ho --swap \
+    --real-phrasing 0.15 --handoff 0.5 --vocab-extend data/v2/messages_jacktol_cs/vocab.json
+uv run python -m atc_forecast.training.sbm_v2 --profile jacktol_ho --cs-match \
+    --init runs/v2/sbm_jacktol_cs_s0.pt --steps 10000 --lr 1e-4 --warmup 500 --eval-every 2000 \
+    --out runs/v2/sbm_jacktol_ho_s0.pt --seed 0 --resume --wandb            # ~30 min
+
+# checks: callsign probe, turn-direction probe, test conditions that depend on the SBM
+uv run python scripts/diagnose_v2.py callsign --sbm runs/v2/sbm_jacktol_ho_s0.pt --profile jacktol_cs --n 600 --tag _ho_s0
+uv run python scripts/diagnose_v2.py turn     --sbm runs/v2/sbm_jacktol_ho_s0.pt --tag _ho_s0
+uv run python -m atc_forecast.evaluation.compose_v2 --sbm runs/v2/sbm_jacktol_ho_s0.pt \
+    --ctp runs/v2/ctp_basis_atoms_zfix_s0.pt --anchors runs/v2/anchors_atoms_zfix_s0.pt --split test --n 5000 \
+    --only composed mode anchors_composed --per-message results/v2/eval_ho_s0.npz --out results/v2/eval_ho_s0.json
+```
+
+`--cs-match` adds two deterministic features per transcript token: whether it belongs to the best in-order alignment of the aircraft's own callsign within the first eight words, and the share of callsign tokens that alignment matches. `--resume` continues from `<out>.resume.pt`, written at every validation, so a run survives a restart. Each checkpoint records its own addressee prior (`addressed_prior`, 0.7 with contrast messages), which `addressee_v2` and `real_v2` read.
+
 ## 1. Data
 
 ```bash
@@ -214,8 +243,8 @@ WANDB=1 bash scripts/run_v2.sh sweeps        # -> results/v2/compose_<tag>.json
 
 On a real frequency each transmission is for one of N aircraft. `addressee_v2.py` works in three steps:
 1. it scores the message against every aircraft on frequency with the SBM;
-2. it divides out the training prior (80 % of training messages are "for me");
-3. it lets the aircraft compete, `P(a) = L_a / (Σ_b L_b + L_off)`, and gates each aircraft's composition by its share.
+2. it divides out the training prior (the share of training messages that are "for me": 0.8 for the base SBM, 0.7 with contrast messages);
+3. joint addressee inference: each message addresses at most one aircraft, `P(a) = L_a / (Σ_b L_b + L_off)`, and each aircraft's composition is gated by its share.
 
 Scenes are built from the N aircraft whose windows are closest in time on the same day.
 
@@ -252,6 +281,8 @@ uv run python scripts/diagnose_v2.py time      --ctp runs/v2/ctp_basis_atoms_s0.
 uv run python scripts/diagnose_v2.py hindsight --ctp runs/v2/ctp_basis_atoms_s0.pt   # H5: by delay, by later onset
 uv run python scripts/diagnose_v2.py noise     --ctp runs/v2/ctp_basis_atoms_s0.pt   # H1: smoothed vs raw spread-skill
 uv run python scripts/diagnose_v2.py sbm       --sbm runs/v2/sbm_jacktol_anyorder_s0.pt  # order spread, beam certification
+uv run python scripts/diagnose_v2.py callsign  --sbm runs/v2/sbm_jacktol_ho_s0.pt --profile jacktol_cs  # which cue decides the status
+uv run python scripts/diagnose_v2.py turn      --sbm runs/v2/sbm_jacktol_ho_s0.pt   # unheard turn direction vs track
 uv run python scripts/altitude_noise_v2.py                                            # level-flight altitude wiggle vs filter
 ```
 

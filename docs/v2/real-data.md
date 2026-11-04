@@ -43,6 +43,8 @@ JSON lines, one object per transmission:
 | `callsign` | its ICAO callsign (`UAL2`), looked up in the ADS-B within `--match-window` seconds (300) |
 | `group` | optional label to break the scores down by: instruction type, sector, recognizer, ... |
 
+**Matching transmissions to aircraft.** If your transmissions are not yet matched to aircraft, `inference/callsign.py` finds the aircraft a transcript names among the callsigns on ADS-B at that time. For each candidate, its airline telephony must appear in the text, followed by its flight number. The number may be written as numerals, digit by digit, or in group form ("twenty four thirty seven"), and it must end on a token boundary, so "United 20367" never matches UAL2. The match also guesses the speaker: a controller opens with the callsign; a pilot ends a readback with it, or names the facility first. It covers airlines with a telephony entry and favors precision over recall.
+
 Words are normalized one at a time, so each word's confidence follows every token it becomes: case and punctuation are dropped, and numerals are spelled as training spoke them (`5,000` → *five thousand*, `270` → *two seven zero*, `FL350` → *flight level three five zero*, `nine` → *niner*). The report gives the share of tokens outside the training vocabulary. Above a few percent, the recognizer's style differs from the one the channel was fitted to (an ATC-tuned Whisper, `jacktol/whisper-large-v3-finetuned-for-ATC`), and the semantic model sees those words as unknown.
 
 ## ADS-B
@@ -70,7 +72,7 @@ Each window needs the aircraft airborne above 50 kt, with no raw gap over 4 s in
 ```bash
 uv run python -m atc_forecast.evaluation.real_v2 \
     --transmissions transmissions.jsonl --adsb "adsb/*.parquet" \
-    --sbm runs/v2/sbm_jacktol_anyorder_s0.pt --ctp runs/v2/ctp_basis_atoms_zfix_s0.pt \
+    --sbm runs/v2/sbm_jacktol_ho_s0.pt --ctp runs/v2/ctp_basis_atoms_zfix_s0.pt \
     --hist-only runs/v2/ctp_basis_none_s0.pt --scene-radius-nm 40 \
     --out results/real.json --per-message results/real_messages.jsonl [--wandb]
 ```
@@ -103,7 +105,7 @@ For batches of thousands of transmissions, use a GPU. On an M4 Pro, 300 transmis
 ```python
 from atc_forecast.inference import Forecaster, load_states
 
-fc = Forecaster.load("runs/v2/sbm_jacktol_anyorder_s0.pt", "runs/v2/ctp_basis_atoms_zfix_s0.pt",
+fc = Forecaster.load("runs/v2/sbm_jacktol_ho_s0.pt", "runs/v2/ctp_basis_atoms_zfix_s0.pt",
                      hist_only="runs/v2/ctp_basis_none_s0.pt")
 states = load_states("traces/**/*.json", source="readsb")
 out = fc.forecast(states, icao24="a1b2c3", t0=1767225612.4, words=words)

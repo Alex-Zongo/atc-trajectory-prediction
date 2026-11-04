@@ -65,7 +65,7 @@ from .phraseology import (
 )
 from .text import AUG_CORPUS, Vocab, _context_pool, tokenize
 
-VARIANTS = ["own", "maintain", "own_other", "other"]
+VARIANTS = ["own", "maintain", "own_other", "other", "swap"]
 
 NON_MOTION = [
     "contact approach one three five point six five", "contact center one three three point niner",
@@ -79,6 +79,62 @@ NON_MOTION = [
 MAINTAIN_LATERAL = ["fly present heading", "continue present heading",
                     "maintain present heading"]
 MAINTAIN_SPEED = ["maintain present speed", "maintain {spd} knots", "keep the speed {spd}"]
+# recorded on NorCal frequencies; used with MessageConfig.real_phrasing
+FACILITY_OPENERS = ["norcal departure radar contact", "norcal departure", "norcal approach",
+                    "oakland center", "radar contact", "good morning", "good afternoon"]
+GREETINGS = ["good day", "have a good day", "thank you", "good afternoon", "bye bye"]
+NON_MOTION_REAL = [
+    "contact oakland center one one niner point seven five",
+    "contact oakland center one two seven point eight good day",
+    "contact norcal departure one two seven point zero",
+    "contact norcal approach one three five point six five",
+    "contact norcal one two zero point niner have a good day",
+    "monitor tower one two zero point niner", "frequency change approved",
+    "norcal departure radar contact", "radar contact climb via the sid",
+    "traffic ten o'clock four miles northbound",
+]
+
+# Generated non-motion transmissions (MessageConfig.handoff): handoffs with a random VHF
+# frequency, squawk codes, altimeter settings, traffic. Their digits must not read as a
+# target value, which ten fixed phrases (NON_MOTION_REAL) do not teach.
+HANDOFF_FACILITIES = ["oakland center", "norcal departure", "norcal approach", "norcal",
+                      "center", "departure", "approach", "tower", "ground", "bay approach",
+                      "socal approach", "oakland tower", "san jose tower"]
+
+
+def _digits(s: str) -> str:
+    return " ".join(DIGITS[c] for c in s)
+
+
+def frequency(rng) -> str:
+    """A VHF frequency as a controller says it, or as a recognizer gives it: 118.000 to
+    136.975 in 25 kHz steps, trailing zeros dropped, "point" sometimes said and sometimes
+    lost."""
+    mhz = int(rng.integers(118, 137))
+    khz = f"{int(rng.integers(0, 40)) * 25:03d}".rstrip("0") or "0"
+    if rng.random() < 0.3:
+        khz = khz[:2]
+    sep = " point " if rng.random() < 0.7 else " "
+    return _digits(str(mhz)) + sep + _digits(khz)
+
+
+def handoff_phrase(rng, freq_only=False) -> str:
+    fac = str(rng.choice(HANDOFF_FACILITIES))
+    f = frequency(rng)
+    forms = [f"contact {fac} {f}", f"contact {fac} on {f}", f"{fac} {f}",
+             f"monitor {fac} {f}", f"contact {fac} {f} good day",
+             f"contact {fac} {f} see ya later"]
+    if freq_only or rng.random() < 0.6:
+        return str(rng.choice(forms))
+    other = [f"squawk {_digits(''.join(str(d) for d in rng.integers(0, 8, 4)))}",
+             f"altimeter {_digits('2' + str(rng.integers(98, 100)) + str(rng.integers(0, 10)))}"
+             if rng.random() < 0.3 else
+             f"altimeter {_digits('30' + str(rng.integers(0, 10)) + str(rng.integers(0, 10)))}",
+             f"traffic {_digits(str(rng.integers(1, 13)))} o'clock "
+             f"{_digits(str(rng.integers(2, 15)))} miles",
+             f"{fac} radar contact", "frequency change approved"]
+    return str(rng.choice(other))
+
 
 _WORD_DIGIT = {v: k for k, v in DIGITS.items()}
 CONTENT = (set(DIGITS.values()) | {"left", "right", "climb", "descend", "increase", "reduce"}
@@ -105,6 +161,21 @@ class MessageConfig:
     distractor_dt: float = 120.0
     tag: str = ""                   # output folder messages_{profile}{tag}
     vocab_from: str = ""            # reuse this vocab.json, so trained models can read it
+    # Callsign-only negatives: the window's OWN instruction under another aircraft's
+    # callsign (variant "swap", status other). The history fits the instruction, so only
+    # the callsign tells the message is not for this aircraft. Without them every "other"
+    # message also carries another aircraft's instruction, the history alone separates
+    # the two, and the model never has to compare callsigns.
+    swap: bool = False
+    # Real-radio phrasing seen on recorded frequencies and absent from the base grammar:
+    # "heavy"/"super" after the callsign, facility openers, "maintain <alt>" for a climb
+    # or descent, greetings, handoffs with a frequency. Each touch has this probability.
+    real_phrasing: float = 0.0
+    # Generated non-motion transmissions (handoff_phrase): this share of own_other bodies,
+    # half of it for "other" bodies (another aircraft's handoff), and a quarter of it
+    # appended to own instructions with the label unchanged ("climb ..., contact ...")
+    handoff: float = 0.0
+    vocab_extend: str = ""          # start from this vocab.json, append new words (ids kept)
 
 
 def _cs_noise(profile):
@@ -153,6 +224,28 @@ def word_errors(said: str, heard: str) -> np.ndarray:
             for j in range(j1, j2):
                 err[j] = b[j] in CONTENT
     return err
+
+
+def _real(cs, cs_heard, body_said, body_heard, wake, p, rng):
+    """Real-radio phrasing applied identically to what was said and what was heard.
+    Returns (cs_said, cs_heard, body_said, body_heard)."""
+    if p <= 0:
+        return cs, cs_heard, body_said, body_heard
+    if wake in ("H", "S") and rng.random() < min(1.0, 4 * p):
+        suf = " heavy" if wake == "H" else " super"
+        cs = cs + suf
+        cs_heard = cs_heard + suf if cs_heard else cs_heard
+    if rng.random() < 2 * p:
+        for verb in ("climb and maintain", "descend and maintain"):
+            body_said = body_said.replace(verb, "maintain")
+            body_heard = body_heard.replace(verb, "maintain")
+    if rng.random() < p:
+        o = str(rng.choice(FACILITY_OPENERS))
+        body_said, body_heard = f"{o} {body_said}", f"{o} {body_heard}"
+    if rng.random() < p:
+        g = str(rng.choice(GREETINGS))
+        body_said, body_heard = f"{body_said} {g}", f"{body_heard} {g}"
+    return cs, cs_heard, body_said, body_heard
 
 
 def _seg(row) -> dict:
@@ -222,6 +315,33 @@ def generate(meta: pd.DataFrame, pool: pd.DataFrame, cfg: MessageConfig,
                     "n_word_errors": int(err.sum()),
                     "kappa": wc.sample(err, rng)})
 
+    def emit_swap(r, own_cs, pool, steady):
+        """The window's own instruction (maneuver) or maintain clause (steady) under another
+        aircraft's callsign, heard (never dropped: the callsign is the only cue)."""
+        for d in range(cfg.draws_aux):
+            o = distractor(r)
+            other_cs = (" ".join(confusable(own_cs.split(), rng)) if rng.random() < 0.5
+                        else telephony(o["callsign"]).lower())
+            if other_cs == own_cs:
+                other_cs = " ".join(confusable(own_cs.split(), rng))
+            cs_h = _heard_callsign(other_cs, 0.0, p_err, rng)
+            if cs_h == own_cs or other_cs == own_cs:
+                continue
+            if r["kind"] == "maneuver":
+                n = corrupt_segment(_seg(r), ncfg, rng)
+                b_s = segment_directive(_seg(r), spoken=True).rstrip(".")
+                b_h = n["noisy_directive"].rstrip(".")
+            elif steady:
+                b_s = b_h = _maintain_clause(str(rng.choice(steady)), r, rng)
+            else:
+                continue
+            cs_s, cs_h, b_s, b_h = _real(other_cs, cs_h, b_s, b_h, o.get("wake"),
+                                         cfg.real_phrasing, rng)
+            ctx_seed = int(rng.integers(1 << 30))
+            said = _wrap(cs_s, b_s, pool, cfg.context_scale, np.random.default_rng(ctx_seed))
+            heard = _wrap(cs_h, b_h, pool, cfg.context_scale, np.random.default_rng(ctx_seed))
+            emit(r, "swap", d, said, heard, 2, [A.NONE] * 3)
+
     for r in rows:
         own_cs = telephony(r["callsign"]).lower()
         pool = _context_pool(r.get("leg_type"), r.get("phase"))
@@ -240,9 +360,14 @@ def generate(meta: pd.DataFrame, pool: pd.DataFrame, cfg: MessageConfig,
                     said_body = f"{said_body}, {clause}" if said_body else clause
                     heard_body = f"{heard_body}, {clause}" if heard_body else clause
                     zz[["lateral", "vertical", "speed"].index(ax)] = A.MAINTAIN
+                if cfg.handoff > 0 and rng.random() < cfg.handoff / 4:
+                    h = handoff_phrase(rng, freq_only=True)
+                    said_body, heard_body = f"{said_body}, {h}", f"{heard_body}, {h}"
                 cs_h = _heard_callsign(own_cs, p_drop, p_err, rng)
+                cs_s, cs_h, said_body, heard_body = _real(own_cs, cs_h, said_body, heard_body,
+                                                          r.get("wake"), cfg.real_phrasing, rng)
                 ctx_seed = int(rng.integers(1 << 30))
-                said = _wrap(own_cs, said_body, pool, cfg.context_scale,
+                said = _wrap(cs_s, said_body, pool, cfg.context_scale,
                              np.random.default_rng(ctx_seed))
                 heard = _wrap(cs_h, heard_body, pool, cfg.context_scale,
                               np.random.default_rng(ctx_seed))
@@ -254,11 +379,18 @@ def generate(meta: pd.DataFrame, pool: pd.DataFrame, cfg: MessageConfig,
                 zz = [A.NONE] * 3
                 zz[["lateral", "vertical", "speed"].index(ax)] = A.MAINTAIN
                 cs_h = _heard_callsign(own_cs, p_drop, p_err, rng)
-                emit(r, "maintain", d, f"{own_cs} {clause}", f"{cs_h} {clause}".strip(), 0, zz)
+                cs_s, cs_h, cl_s, cl_h = _real(own_cs, cs_h, clause, clause, r.get("wake"),
+                                               cfg.real_phrasing, rng)
+                emit(r, "maintain", d, f"{cs_s} {cl_s}", f"{cs_h} {cl_h}".strip(), 0, zz)
         for d in range(cfg.draws_aux):
-            body = str(rng.choice(NON_MOTION))
+            body = str(rng.choice(NON_MOTION + NON_MOTION_REAL if cfg.real_phrasing > 0
+                                  else NON_MOTION))
+            if cfg.handoff > 0 and rng.random() < cfg.handoff:
+                body = handoff_phrase(rng)
             cs_h = _heard_callsign(own_cs, p_drop, p_err, rng)
-            emit(r, "own_other", d, f"{own_cs} {body}", f"{cs_h} {body}".strip(), 1,
+            cs_s, cs_h, b_s, b_h = _real(own_cs, cs_h, body, body, r.get("wake"),
+                                         cfg.real_phrasing, rng)
+            emit(r, "own_other", d, f"{cs_s} {b_s}", f"{cs_h} {b_h}".strip(), 1,
                  [A.NONE] * 3)
         for d in range(cfg.draws_aux):
             o = distractor(r)
@@ -269,9 +401,17 @@ def generate(meta: pd.DataFrame, pool: pd.DataFrame, cfg: MessageConfig,
             seg = _seg(o)
             n = corrupt_segment(seg, ncfg, rng)
             cs_h = _heard_callsign(other_cs, p_drop, p_err, rng)
-            said = f"{other_cs} {segment_directive(seg, spoken=True).rstrip('.')}"
-            heard = f"{cs_h} {n['noisy_directive'].rstrip('.')}".strip()
+            b_s = segment_directive(seg, spoken=True).rstrip(".")
+            b_h = n["noisy_directive"].rstrip(".")
+            if cfg.handoff > 0 and rng.random() < cfg.handoff / 2:
+                b_s = b_h = handoff_phrase(rng)
+            cs_s, cs_h, b_s, b_h = _real(other_cs, cs_h, b_s, b_h, o.get("wake"),
+                                         cfg.real_phrasing, rng)
+            said = f"{cs_s} {b_s}"
+            heard = f"{cs_h} {b_h}".strip()
             emit(r, "other", d, said, heard, 2, [A.NONE] * 3)
+        if cfg.swap:
+            emit_swap(r, own_cs, pool, steady)
     return pd.DataFrame(out)
 
 
@@ -299,7 +439,16 @@ def build(data_dir, cfg: MessageConfig = MessageConfig(), workers=8):
 
     own = meta[["window_id", "callsign"]].copy()
     own["cs_text"] = [telephony(c).lower() for c in own["callsign"]]
-    if cfg.vocab_from:
+    if cfg.vocab_extend:
+        # keep every existing id; new words go at the end, so a model trained on the old
+        # vocabulary reads old messages unchanged and only learns the new rows
+        old = json.loads(Path(cfg.vocab_extend).read_text())
+        full = Vocab(list(msgs["text"].unique()) + list(own["cs_text"].unique()),
+                     extra=AUG_CORPUS + NON_MOTION + NON_MOTION_REAL + MAINTAIN_LATERAL
+                     + FACILITY_OPENERS + GREETINGS + ["heavy", "super"])
+        seen = set(old)
+        vocab = Vocab.from_itos(old + [w for w in full.itos[2:] if w not in seen])
+    elif cfg.vocab_from:
         vocab = Vocab.from_itos(json.loads(Path(cfg.vocab_from).read_text()))
     else:
         vocab = Vocab(list(msgs["text"].unique()) + list(own["cs_text"].unique()),
@@ -344,10 +493,21 @@ def main():
     ap.add_argument("--distractor-dt", type=float, default=120.0)
     ap.add_argument("--tag", default="", help="output folder suffix: messages_{profile}{tag}")
     ap.add_argument("--vocab-from", default="", help="reuse an existing vocab.json")
+    ap.add_argument("--vocab-extend", default="",
+                    help="extend an existing vocab.json (ids kept, new words appended)")
+    ap.add_argument("--swap", action="store_true",
+                    help="add callsign-only negatives (own instruction, other callsign)")
+    ap.add_argument("--real-phrasing", type=float, default=0.0,
+                    help="probability of each real-radio phrasing touch (0 = base grammar)")
+    ap.add_argument("--handoff", type=float, default=0.0,
+                    help="share of no-motion messages that are generated handoffs, squawks, "
+                         "altimeter settings or traffic (0 = the fixed phrases only)")
     a = ap.parse_args()
     build(a.data, MessageConfig(profile=a.profile, draws_own=a.draws_own, seed=a.seed,
                                 distractors=a.distractors, distractor_dt=a.distractor_dt,
-                                tag=a.tag, vocab_from=a.vocab_from), workers=a.workers)
+                                tag=a.tag, vocab_from=a.vocab_from, vocab_extend=a.vocab_extend,
+                                swap=a.swap, real_phrasing=a.real_phrasing,
+                                handoff=a.handoff), workers=a.workers)
 
 
 if __name__ == "__main__":

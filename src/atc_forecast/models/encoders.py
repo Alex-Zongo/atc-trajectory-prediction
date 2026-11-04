@@ -117,20 +117,49 @@ class InstructionTokens(nn.Module):
         return torch.stack(toks, -2)
 
 
+def callsign_match(cs_tokens, tokens, window=8):
+    """Deterministic agreement between the own callsign (from ADS-B) and the transcript.
+
+    Returns [B, L] features per transcript token: `inside`, 1 where the token is part of
+    the best in-order alignment of the callsign within the first `window` positions, and
+    `score`, the share of callsign tokens that alignment matches (the same for every token
+    of a message). A heard callsign gives score 1 at its position; another aircraft's
+    callsign gives a low score; a clipped one gives a low score too, and the history must
+    then decide.
+    """
+    B, L = tokens.shape
+    n = (cs_tokens > 0).sum(1).clamp(min=1)                          # callsign length
+    Lc = cs_tokens.shape[1]
+    pad = torch.zeros(B, Lc, dtype=tokens.dtype, device=tokens.device)
+    t = torch.cat([tokens, pad], 1)
+    offs = min(window, L)
+    hits = torch.stack([(t[:, o:o + Lc] == cs_tokens) & (cs_tokens > 0) for o in range(offs)], 1)
+    score = hits.sum(-1).float() / n[:, None]                         # [B, offs]
+    best, o_best = score.max(1)
+    inside = torch.zeros(B, L, device=tokens.device)
+    pos = o_best[:, None] + torch.arange(Lc, device=tokens.device)[None]
+    ok = (pos < L) & hits[torch.arange(B), o_best]
+    inside.scatter_(1, pos.clamp(max=L - 1), ok.float())
+    return inside, best[:, None].expand(B, L)
+
+
 class TextEncoder(nn.Module):
     """[CS] own callsign [SEP] transcript -> token states [B, L, d] and a padding mask.
 
     Each word's confidence enters as features (kappa, 1 - kappa, exact flag) added to the
-    embedding; the own callsign comes from ADS-B and is marked exact.
+    embedding; the own callsign comes from ADS-B and is marked exact. With cs_match, two
+    more features per transcript token say how well the heard words align with that
+    callsign (callsign_match), so comparing them is an input, not something to discover.
     """
 
-    def __init__(self, vocab_size, d=128, n_layers=4, max_len=64, dropout=0.1):
+    def __init__(self, vocab_size, d=128, n_layers=4, max_len=64, dropout=0.1, cs_match=False):
         super().__init__()
+        self.cs_match = cs_match
         self.tok = nn.Embedding(vocab_size + 2, d, padding_idx=0)   # + [CS], [SEP]
         self.cls_id, self.sep_id = vocab_size, vocab_size + 1
         self.pos = nn.Parameter(torch.randn(max_len, d) * 0.02)
         self.role = nn.Embedding(2, d)
-        self.conf = nn.Sequential(nn.Linear(3, d), nn.GELU(), nn.Linear(d, d))
+        self.conf = nn.Sequential(nn.Linear(5 if cs_match else 3, d), nn.GELU(), nn.Linear(d, d))
         self.layers = encoder_layers(d, n_layers, dropout=dropout)
         self.norm = nn.LayerNorm(d)
 
@@ -145,6 +174,11 @@ class TextEncoder(nn.Module):
         k = torch.cat([torch.ones(B, Lc + 2, device=dev), kappa], 1)
         exact = (role == 0).float()
         pad = ids == 0
+        feats = [k, 1 - k, exact]
+        if self.cs_match:
+            inside, score = callsign_match(cs_tokens, tokens)
+            z = torch.zeros(B, Lc + 2, device=dev)
+            feats += [torch.cat([z, inside], 1), torch.cat([z, score], 1)]
         x = (self.tok(ids) + self.pos[:ids.shape[1]] + self.role(role)
-             + self.conf(torch.stack([k, 1 - k, exact], -1)))
+             + self.conf(torch.stack(feats, -1)))
         return self.norm(self.layers(x, src_key_padding_mask=pad)), pad

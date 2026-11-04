@@ -109,7 +109,7 @@ def scene_status(fc, states, win, rows, msgs, txs, a):
     p, top, n = [], [], []
     for j in range(len(rows)):
         r = np.r_[q_addr[j, :2].sum(), r_other[j]]
-        pa = resolve(r, a.out_weight)
+        pa = resolve(r, a.out_weight, fc.addressed_prior)
         p.append(pa[0])
         top.append(bool(np.argmax(pa) == 0))
         n.append(len(r))
@@ -143,6 +143,8 @@ def main():
                     help="OpenSky aircraft database CSV (downloaded once if missing); "
                          "'none': every aircraft type unknown")
     ap.add_argument("--altitude", default="baro", choices=("baro", "geo"))
+    ap.add_argument("--gap", type=float, default=4.0,
+                    help="widest raw ADS-B gap (s) a window may contain; training used 4")
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", required=True)
@@ -155,7 +157,7 @@ def main():
                  group=a.wandb_group, job_type="eval_real")
     fc = Forecaster.load(a.sbm, a.ctp, a.hist_only, a.device,
                          aircraft_db=None if a.aircraft_db == "none" else a.aircraft_db,
-                         spec=WindowSpec(altitude=a.altitude))
+                         spec=WindowSpec(altitude=a.altitude, gap_s=a.gap))
     states = load_states(a.adsb, a.source)
     txs = read_transmissions(a.transmissions)
     for tx in txs:

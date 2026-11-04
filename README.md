@@ -26,24 +26,24 @@ p(Y | O, X)  ≈  Σ_Z  q_φ(Z | O, X) · p_θ(Y | X, Z)
 ```
 transcript O ─► semantic belief model (SBM) ─► K = 12 interpretations Z_k, with probabilities
 history X  ─┬──────────────────────────────┘
-            └► conditional trajectory predictor (CTP) ─► S = 6 futures per Z_k ─► 72 futures
+            └► conditional trajectory predictor (CTP) ─► S = 6 trajectories per Z_k ─► 72 trajectories
 ```
 
-- The **semantic belief model** gives a distribution over interpretations. It is not just a best guess, so a misheard *five* or a clipped callsign stays visible as uncertainty.
+- The **semantic belief model** gives a distribution over interpretations. It is not just a best guess, so a misheard *five* or a clipped callsign stays visible as uncertainty. It compares the callsign it hears with the aircraft's own ADS-B callsign.
 - The **conditional trajectory predictor** is a rectified flow on 18 trajectory-shape coefficients (a PCA basis of the training futures). It gives the spread that remains once the instruction is known: pilot delay, rates, wind and performance.
-- **Composition** draws several interpretations and several futures under each. On a frequency with several aircraft, the aircraft compete for each message, so each forecast takes only its share of it.
+- **Composition** draws several interpretations and several future trajectories under each. On a frequency with several aircraft, joint addressee inference uses the fact that a message addresses at most one of them, so each aircraft's prediction takes only its share of the instruction.
 
-On the synthetic-message test set (real ADS-B, transcripts simulated from a fitted recognizer channel), errors are energy scores in metres, lower is better, for messages that instruct the aircraft's own maneuver:
+On the synthetic-message test set (real ADS-B, transcripts simulated from a fitted recognizer channel), errors are energy scores in metres, lower is better. Means over three training runs:
 
 | | own maneuver | all messages | 90 % coverage |
 |---|---|---|---|
 | history only (ignores the radio) | 3,202 | 2,988 | 0.85 |
-| CTP reading the transcript directly | 2,187 | 2,751 | 0.85 |
-| SBM best reading → CTP | 1,714 | 2,719 | 0.84 |
-| **SBM, 12 readings × 6 futures → CTP (main)** | **1,675** | **2,688** | 0.86 |
-| CTP given the true interpretation (bound) | 1,554 | 2,599 | 0.85 |
+| CTP conditioned on the transcript directly | 2,187 | 2,751 | 0.85 |
+| SBM most probable interpretation → CTP | 1,727 ± 2 | 2,732 | 0.84 |
+| **SBM, 12 interpretations × 6 trajectories → CTP (main)** | **1,682 ± 5** | **2,701** | 0.86 |
+| CTP given the reference interpretation (upper reference) | 1,556 ± 2 | 2,615 | 0.85 |
 
-These are one training seed; seeds 1 and 2 are running. Ablations, calibration and where the error remains are covered in [docs/v2/results.md](docs/v2/results.md).
+On 338 recorded controller transmissions matched to ADS-B (private set, NorCal Departure), the same models improve on history only by 9 % and rank the addressed aircraft first among about 12 for 98 % of transmissions. Ablations, the SBM versions, calibration, recorded speech and where the error remains are covered in [docs/v2/results.md](docs/v2/results.md).
 
 v1, the original two-stage model behind the first results, is documented in [docs/v1.md](docs/v1.md) and tagged `v1.0.0`. Its code is unchanged.
 
@@ -53,27 +53,31 @@ Managed with [uv](https://docs.astral.sh/uv/); `uv.lock` pins every dependency. 
 
 ```bash
 uv sync --all-extras          # .venv from the lock
-uv run pytest                 # about 64 tests in seconds; no data, checkpoints or network
+uv run pytest                 # 66 tests in seconds; no data, checkpoints or network
 ```
 
 PyTorch picks CUDA, then Apple MPS, then CPU; override with `--device`.
 
 ## Get the trained models
 
-Weights and the processed dataset are release assets, not in git:
+The weights are release assets, not in git. The processed dataset is derived from OpenSky data, so it is shared only through a gated Hugging Face dataset: request access on its page first.
 
 ```bash
 gh auth login                                          # once
-uv run python scripts/artifacts.py fetch --models-only # the four v2 checkpoints (~30 MB)
-uv run python scripts/artifacts.py fetch               # plus the processed v2 dataset (~1.5 GB)
+uv run python scripts/artifacts.py fetch --models-only # the main model and its baselines (~38 MB)
+hf auth login                                          # once, after access is granted
+uv run python scripts/artifacts.py fetch --hub Alex-Zongo   # the models and the processed v2 dataset (~2 GB)
 ```
+
+The models are also on the Hub (`fetch --hub Alex-Zongo --models-only`).
 
 | checkpoint | what it is |
 |---|---|
-| `runs/v2/sbm_jacktol_anyorder_s0.pt` | semantic belief model (vocabulary included) |
+| `runs/v2/sbm_jacktol_ho_s0.pt` | final semantic belief model: callsign contrast and handoff phrases (vocabulary included) |
 | `runs/v2/ctp_basis_atoms_zfix_s0.pt` | conditional trajectory predictor (basis included) |
 | `runs/v2/ctp_basis_none_s0.pt` | history-only predictor: the "radio tells us nothing" answer |
 | `runs/v2/anchors_atoms_zfix_s0.pt` | mixture-head alternative to the flow, better calibrated, single network call |
+| `runs/v2/ctp_basis_text_s0.pt` | baseline: trajectory predictor conditioned on the transcript directly, without interpretations |
 
 Downloads are checked against `SHA256SUMS`. Without the GitHub CLI, download the assets from the `data-v2` release page and run `fetch --from <folder>`.
 
@@ -84,12 +88,12 @@ Real transcripts plus ADS-B, from OpenSky or adsb.lol:
 ```python
 from atc_forecast.inference import Forecaster, load_states
 
-fc = Forecaster.load("runs/v2/sbm_jacktol_anyorder_s0.pt", "runs/v2/ctp_basis_atoms_zfix_s0.pt")
+fc = Forecaster.load("runs/v2/sbm_jacktol_ho_s0.pt", "runs/v2/ctp_basis_atoms_zfix_s0.pt")
 states = load_states("adsb/*.parquet")                 # or adsb.lol traces: source="readsb"
 out = fc.forecast(states, icao24="a1b2c3", t0=1767225612.4,
                   words=[{"word": "united", "probability": 0.98}, ...])   # faster-whisper words
 out["readings"]                       # [("own_motion | L270 | descend 5,000 | -", 0.81, atoms), ...]
-out["lat"], out["lon"], out["alt_ft"] # 72 futures x 60 s
+out["lat"], out["lon"], out["alt_ft"] # 72 future trajectories x 60 s
 ```
 
 To evaluate a set of matched transmissions against what the aircraft then flew:
@@ -97,7 +101,7 @@ To evaluate a set of matched transmissions against what the aircraft then flew:
 ```bash
 uv run python -m atc_forecast.evaluation.real_v2 \
     --transmissions transmissions.jsonl --adsb "adsb/*.parquet" \
-    --sbm runs/v2/sbm_jacktol_anyorder_s0.pt --ctp runs/v2/ctp_basis_atoms_zfix_s0.pt \
+    --sbm runs/v2/sbm_jacktol_ho_s0.pt --ctp runs/v2/ctp_basis_atoms_zfix_s0.pt \
     --hist-only runs/v2/ctp_basis_none_s0.pt --scene-radius-nm 40 \
     --out results/real.json --per-message results/real_messages.jsonl
 ```
@@ -134,7 +138,8 @@ v1 modules (`models/stage1.py`, `models/stage2.py`, `data/windows.py`, `evaluati
 
 ## Data handling
 
-- Raw OpenSky ADS-B is never redistributed: OpenSky's terms restrict it. Releases carry processed 1 Hz windows only.
+- Raw OpenSky ADS-B is never redistributed: OpenSky's terms restrict it. The processed 1 Hz windows are shared only through the gated Hugging Face dataset, and GitHub releases carry the model weights only.
+- Recorded controller speech (LiveATC) is used for evaluation only, under personal research use. Neither audio nor transcripts are shipped, and results are reported as aggregates.
 - The recognizer channel is fitted on ATCO2 and ATCOSIM benchmark transcripts. The recordings, their labels and the fitted word-confidence file are for internal research use and are not shipped; without them the message builder uses a parametric word-confidence fallback of the same shape.
 
 ## Citation

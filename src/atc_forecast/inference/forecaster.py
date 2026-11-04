@@ -81,6 +81,7 @@ class Forecaster:
                  aircraft_db=DEFAULT_CACHE, spec: WindowSpec = WindowSpec()):
         self.sbm, self.ctp, self.hist_only = sbm, ctp, hist_only
         self.vocab = Vocab.from_itos(sbm_ck["vocab"])
+        self.addressed_prior = float(sbm_ck.get("addressed_prior", 0.8))  # SBM training mix
         self.device, self.spec = device, spec
         self._db_path, self._db = aircraft_db, None
 

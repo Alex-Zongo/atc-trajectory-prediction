@@ -172,7 +172,8 @@ def main():
                  group=a.wandb_group, job_type="eval")
     ws = WindowStore(a.data)
     ms = MessageStore(a.data, a.profile, ws)
-    sbm = load_sbm(a.sbm, dev)[0]
+    sbm, sbm_ck = load_sbm(a.sbm, dev)
+    prior = sbm_ck.get("addressed_prior", ADDRESSED_TRAIN)   # the SBM's own training mix
     ctp = load_ctp(a.ctp, dev)[0]
     hist = load_ctp(a.hist_only, dev)[0] if a.hist_only else None
     split = ws.meta["split"].to_numpy()
@@ -207,8 +208,8 @@ def main():
                 n = 1 + len(o)
                 s = slice(off, off + n)
                 p["independent"][s] = r_addr[s]
-                p["prior"][s] = prior_shift(r_addr[s], a.n_aircraft)
-                p["scene"][s] = resolve(r_addr[s], a.out_weight)
+                p["prior"][s] = prior_shift(r_addr[s], a.n_aircraft, prior)
+                p["scene"][s] = resolve(r_addr[s], a.out_weight, prior)
                 p["known"][s] = np.r_[1.0, np.zeros(n - 1)]
                 role[off] = True
                 rec["row"].append(m)
