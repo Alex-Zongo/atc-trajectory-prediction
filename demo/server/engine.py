@@ -291,10 +291,11 @@ class Engine:
 
     @torch.no_grad()
     def scene(self, wids, words, sbm="final", ctp="flow_pca", sampler="euler12", K=12, S=6,
-              seed=0, mode="normalized", routing=False, out_weight=1.0):
+              seed=0, mode="normalized", routing=False, out_weight=1.0, adsb=True):
         """Several aircraft hear one transmission. mode 'normalized': recipient probabilities
         across the aircraft (Appendix H); 'independent': each aircraft alone. routing: samples
-        with no motion content use the ADS-B-only predictor (Appendix H.3)."""
+        with no motion content use the ADS-B-only predictor (Appendix H.3). adsb: also return
+        each aircraft's ADS-B-only prediction, the baseline that ignores the radio."""
         t_start = time.perf_counter()
         wids = [self.window(w) for w in wids]
         if not 1 <= len(wids) <= 16:
@@ -321,10 +322,12 @@ class Engine:
         Vc = self.futures(cm, kind, b, zs, S, seed, sp["nfe"], sp["method"])
         zn = zs.cpu().numpy()
         routed = np.zeros(zn.shape[:2], bool)
+        H = None
+        if adsb or routing:
+            H = self.unconditioned(self.ctp("adsb_only")[0], b, K * S, seed, sp["nfe"], sp["method"])
         if routing:
             routed = (zn[..., 1:] == A.NONE).all(-1)
             if routed.any():
-                H = self.unconditioned(self.ctp("adsb_only")[0], b, K * S, seed, sp["nfe"], sp["method"])
                 mask = np.repeat(routed, S, 1)
                 Vc = np.where(mask[..., None, None], H, Vc)
         g = nested(K, S)
@@ -335,7 +338,9 @@ class Engine:
                              "samples": self.groups(zn[i]), "routed": int(routed[i].sum()),
                              "branch_of_sample": [branch(x) for x in zn[i]],
                              "tracks": self.enu(w, Vc[i]).tolist(), "group_of_track": g.tolist(),
-                             "scores": self.scores(Vc[i], w, g)})
+                             "scores": self.scores(Vc[i], w, g),
+                             **({"adsb_only": {"tracks": self.enu(w, H[i]).tolist(), "scores": self.scores(H[i], w)}}
+                                if adsb else {})})
         return {"mode": mode, "routing": routing, "input": info, "aircraft": aircraft,
                 "p_outside": float(max(0.0, 1 - p.sum())) if mode == "normalized" else None,
                 "ms": round(1000 * (time.perf_counter() - t_start))}

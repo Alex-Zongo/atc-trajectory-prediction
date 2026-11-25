@@ -98,6 +98,9 @@ def main():
             for routing in (False, True):
                 r = e.scene(wids, t["message"]["words"], routing=routing)
                 for x in r["aircraft"]:
+                    if "adsb_only" in x:                       # the baseline: 24 trajectories suffice
+                        h = np.asarray(x["adsb_only"]["tracks"])
+                        x["adsb_only"]["tracks"] = (np.round(h[np.linspace(0, len(h) - 1, 24).astype(int)] / 10) * 10).astype(int).tolist()
                     keep = KEEP if x["p_addressed"] >= 0.5 else 12
                     tr = np.asarray(x["tracks"])
                     idx = np.linspace(0, len(tr) - 1, keep).astype(int) if keep < KEEP else None

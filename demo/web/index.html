@@ -49,6 +49,7 @@
       <button id="scene-next" type="button">Next</button>
       <label class="chk dyn"><input id="live-norm" type="checkbox" checked> Identify the recipient across aircraft</label>
       <label class="chk"><input id="live-route" type="checkbox"> ADS-B-only routing for no-motion samples</label>
+      <label class="chk"><input id="live-adsb" type="checkbox" checked> ADS-B-only prediction</label>
       <label class="chk"><input id="live-fans" type="checkbox"> Fans for every aircraft</label>
     </div>
     <div class="wrap grid2">
@@ -63,7 +64,7 @@
         </div>
         <div class="branches" id="live-branches"></div>
         <p class="legend" id="live-cov"></p>
-        <p class="cap">Scroll to zoom, drag to pan, double-click to reset. Shaded regions, nearest the aircraft first: where it is predicted to be at +20, +40 and +60 s with 50% (solid outline) and 90% (dashed) probability. Numbered badges mark the instruction branches listed above. Local frame, km from the scene centre; aircraft grouped by time on one day, as in Appendix H. Grey: last 30 s. Black dashes: the flown path, drawn after the fact. Blue: predicted trajectories for the aircraft the model judges addressed; grey fans: the others.</p>
+        <p class="cap">Scroll to zoom, drag to pan, double-click to reset. Shaded regions, nearest the aircraft first: where it is predicted to be at +20, +40 and +60 s with 50% (solid outline) and 90% (dashed) probability. Numbered badges mark the instruction branches listed above. Local frame, km from the scene centre; aircraft grouped by time on one day, as in Appendix H. Grey: last 30 s. Black dashes: the flown path, drawn after the fact. Blue: predicted trajectories for the aircraft the model judges addressed; light grey fans: the others. Dashed dark grey: the ADS-B-only prediction, which ignores the radio, shown for comparison.</p>
       </div>
       <div class="panel side">
         <h3>Radio transmissions on the sector frequency</h3>
@@ -126,7 +127,7 @@
 
   <section class="view" id="view-compare">
     <div class="wrap">
-      <p class="note">Same aircraft and transcript as <a href="#try">Try a transmission</a>. Each side picks its own semantic model, trajectory predictor and sampler. Both sides use one scale. <span class="sw" style="background:#1240e0"></span> composed over the belief, <span class="sw" style="background:#7c3aed"></span> most probable representation, thick line: the flown trajectory.</p>
+      <p class="note">Same aircraft and transcript as <a href="#try">Try a transmission</a>. Each side picks its own semantic model, trajectory predictor and sampler. Both sides use one scale. <span class="sw" style="background:#1240e0"></span> composed over the belief, <span class="sw" style="background:#7c3aed"></span> most probable instruction, <span class="sw" style="background:#6b7280"></span> ADS-B only (the same on both sides), thick line: the flown trajectory.</p>
       <div class="grid-eq" id="cmp"></div>
       <div id="cmp-summary"></div>
     </div>

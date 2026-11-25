@@ -65,6 +65,7 @@ class SceneReq(Common):
     windows: list[int] = Field(min_length=1, max_length=16)
     mode: str = "normalized"
     routing: bool = False
+    adsb: bool = True
 
 
 def run(fn, **kw):
@@ -106,7 +107,7 @@ def predict(r: PredictReq):
 def scene(r: SceneReq):
     return run(engine.scene, wids=r.windows, words=[w.model_dump() for w in r.words], sbm=r.sbm,
                ctp=r.ctp, sampler=r.sampler, K=r.K, S=r.S, seed=r.seed, mode=r.mode,
-               routing=r.routing)
+               routing=r.routing, adsb=r.adsb)
 
 
 WEB = ROOT / "web"

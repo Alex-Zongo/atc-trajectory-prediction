@@ -8,7 +8,7 @@ const COND = {
   composed: {label: "Composed over the belief", color: "#1240e0"},
   most_probable: {label: "Most probable instruction", color: "#7c3aed"},
   label: {label: "Semantic label (reference)", color: "#0f7a4a", dash: "5 3"},
-  adsb_only: {label: "ADS-B only", color: "#8a93a8"},
+  adsb_only: {label: "ADS-B only", color: "#6b7280", dash: "4 3"},
   transcript: {label: "Transcript-conditioned flow", color: "#0e7490"},
   kinematic: {label: "Kinematic rule", color: "#ea580c", dash: "6 3"},
 };
@@ -341,6 +341,7 @@ function sceneSetup() {
   $("scene-next").addEventListener("click", () => go(S.live.scene + 1));
   for (const id of ["live-norm", "live-route"]) $(id).addEventListener("change", () => { S.live.results = {}; S.live.cur = null; renderLive(); liveSide(); });
   $("live-fans").addEventListener("change", renderLive);
+  $("live-adsb").addEventListener("change", () => { renderLive(); liveSide(); });
   $("clock-play").addEventListener("click", () => { S.live.playing = !S.live.playing; $("clock-play").textContent = S.live.playing ? "Pause" : "Play"; if (S.live.playing) { if (S.live.t >= S.live.tmax) setClock(S.live.tmin); S.live.last = performance.now(); requestAnimationFrame(tick); } });
   $("clock-range").addEventListener("input", () => setClock(+$("clock-range").value));
   $("custom-form").addEventListener("submit", (ev) => {
@@ -385,7 +386,7 @@ async function process(i) {
   liveSide();
   try {
     const res = await api("/api/scene", {...sel(), windows: scene().aircraft.map((a) => a.window), words: tx.message.words,
-      mode: $("live-norm").checked ? "normalized" : "independent", routing: $("live-route").checked, _tx: i, _scene: S.live.scene});
+      mode: $("live-norm").checked ? "normalized" : "independent", routing: $("live-route").checked, adsb: true, _tx: i, _scene: S.live.scene});
     S.live.results[i] = res; S.live.cur = i;
     $("live-lat").textContent = STATIC ? "precomputed" : `last prediction ${res.ms} ms for ${res.aircraft.length} aircraft`;
   } catch (e) {
@@ -437,7 +438,12 @@ function renderLive() {
       if (!addressed && !all) continue;
       const p0 = a.hist_km[a.hist_km.length - 1];
       const km = (p) => [p0[0] + p[0] / 1000, p0[1] + p[1] / 1000];
-      const color = addressed ? "#1240e0" : "#8a93a8";
+      const color = addressed ? "#1240e0" : "#a8b3c7";
+      if ($("live-adsb").checked && r.adsb_only) {
+        for (const k of pick(r.adsb_only.tracks.length, 24)) {
+          line(fans, f, r.adsb_only.tracks[k].map(km), {stroke: "#6b7280", "stroke-opacity": 0.55, "stroke-width": 1, "stroke-dasharray": "4 3"});
+        }
+      }
       if (mode !== "prob") {
         for (const k of pick(r.tracks.length, MAX_DRAW)) {
           line(fans, f, r.tracks[k].map(km), {stroke: color, "stroke-opacity": mode === "both" ? (addressed ? 0.2 : 0.15) : (addressed ? 0.35 : 0.25), "stroke-width": 1.2});
@@ -521,7 +527,11 @@ function liveSide() {
   const top = [...res.aircraft].sort((a, b) => b.p_addressed - a.p_addressed)[0];
   const K = top.samples.reduce((s, g) => s + g.n, 0);
   bars("live-belief", top.samples.map((g) => ({label: g.text, p: g.n / K, text: `${g.n}/${K}`})));
-  $("live-scores").innerHTML = `<div class="scroll"><table><thead><tr><th>Aircraft</th><th>P(addressed)</th><th>ES (m)</th><th>ADE (m)</th><th>Routed</th></tr></thead><tbody>${res.aircraft.map((a) => `<tr><td>${esc(a.callsign)}</td><td>${fmt(100 * a.p_addressed, 1)}%</td><td>${fmt(a.scores.es_h_m)}</td><td>${fmt(a.scores.ade_h_m)}</td><td>${a.routed}</td></tr>`).join("")}</tbody></table></div><p class="legend">Energy score (ES) and average displacement error (ADE) against each aircraft's flown 60 s, horizontal, in metres; lower is better. Routed: samples sent to the ADS-B-only predictor. Each aircraft is predicted from its own window time.</p>`;
+  const withH = res.aircraft.some((a) => a.adsb_only);
+  $("live-scores").innerHTML = `<div class="scroll"><table><thead><tr><th>Aircraft</th><th>P(addressed)</th><th>ES (m)</th>${withH ? "<th>ES, ADS-B only (m)</th>" : ""}<th>ADE (m)</th><th>Routed</th></tr></thead><tbody>${res.aircraft.map((a) => {
+    const h = a.adsb_only ? a.adsb_only.scores.es_h_m : null, better = h != null && a.scores.es_h_m < h;
+    return `<tr><td>${esc(a.callsign)}</td><td>${fmt(100 * a.p_addressed, 1)}%</td><td class="${better ? "best" : ""}">${fmt(a.scores.es_h_m)}</td>${withH ? `<td class="${h != null && !better ? "best" : ""}">${fmt(h)}</td>` : ""}<td>${fmt(a.scores.ade_h_m)}</td><td>${a.routed}</td></tr>`;
+  }).join("")}</tbody></table></div><p class="legend">Energy score (ES) and average displacement error (ADE) against each aircraft's flown 60 s, horizontal, in metres; lower is better. Green: the better of the prediction with the transmission and the ADS-B-only prediction for that aircraft. Routed: samples sent to the ADS-B-only predictor. Each aircraft is predicted from its own window time.</p>`;
 }
 
 /* ------------------------------------------------------------------ try a transmission */
@@ -727,13 +737,13 @@ function drawCmp() {
 async function runCmp() {
   if (view() !== "compare" || S.tr.window == null) return;
   try {
-    const go = (s) => api("/api/predict", {...sel(), ...S.cmp[s], window: S.tr.window, words: S.tr.words, conditions: ["composed", "most_probable"]});
+    const go = (s) => api("/api/predict", {...sel(), ...S.cmp[s], window: S.tr.window, words: S.tr.words, conditions: ["composed", "most_probable", "adsb_only"]});
     const a = await go("a"), b = await go("b");
     const bd = predBounds(a, b);
     S.cmp.last = {a, b, bd};
     drawCmp();
     const v = S.variants, name = (s) => `${v.sbm[S.cmp[s].sbm].label} + ${v.ctp[S.cmp[s].ctp].label}, ${v.samplers[S.cmp[s].sampler]}`;
-    const rows = [["A, composed", a.predictions.composed], ["B, composed", b.predictions.composed], ["A, most probable", a.predictions.most_probable], ["B, most probable", b.predictions.most_probable]].map(([n, p]) => ({name: n, scores: p.scores}));
+    const rows = [["A, composed", a.predictions.composed], ["B, composed", b.predictions.composed], ["A, most probable", a.predictions.most_probable], ["B, most probable", b.predictions.most_probable], ["ADS-B only (ignores the radio)", a.predictions.adsb_only]].filter(([, p]) => p).map(([n, p]) => ({name: n, scores: p.scores}));
     const best = METRICS.map((m) => bestOf(rows, m));
     $("cmp-summary").innerHTML = `<div class="panel" style="margin-top:16px"><h3>Scores on this case</h3><p class="note">A: ${esc(name("a"))}<br>B: ${esc(name("b"))}</p><div class="scroll"><table><thead><tr><th>Prediction</th>${METRICS.map((m) => `<th>${m.head}</th>`).join("")}</tr></thead><tbody>${rows.map((r, i) => `<tr><td>${esc(r.name)}</td>${METRICS.map((m, j) => `<td class="${best[j] === i ? "best" : ""}">${r.scores[m.key] == null ? "–" : fmt(r.scores[m.key], m.d)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${LEGEND.replace(", excluding the semantic label, a reference that is not available in operation", "")}</div>`;
   } catch (e) { toast(e.message); }
