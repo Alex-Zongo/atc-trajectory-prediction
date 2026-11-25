@@ -61,8 +61,9 @@ Research on trajectory prediction under communication uncertainty. Not for opera
 ```bibtex
 @software{zongo2026atc,
   author  = {Zongo, Alex and Petit, Mathurin and Brusset, Louis and Kam, Jordan and
-             Torun, Emir and Ghazanfari, Mahyar and Wei, Peng and Bayen, Alexandre},
-  title   = {Aircraft Trajectory Prediction under {ATC} Instruction Uncertainty},
+             Torun, Emir and Ghazanfari, Mahyar and Wei, Peng and McNaughton, Nathan and
+             Bayen, Alexandre},
+  title   = {Aircraft Trajectory Prediction from {ADS-B} and Imperfect {ATC} Transcripts},
   year    = {2026},
   note    = {Software; paper in preparation}
 }

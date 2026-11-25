@@ -43,10 +43,12 @@ app = [
     "plotly>=5.24",
     "streamlit>=1.46",
 ]
+# web demo (demo/): model service and static front end
+demo = ["fastapi>=0.115", "uvicorn>=0.30"]
 # experiment tracking
 track = ["wandb>=0.17"]
 dev = ["pytest>=8.0", "pytest-cov", "ruff"]
-all = ["atc-forecast[collect,asr,app,track,dev]"]
+all = ["atc-forecast[collect,asr,app,demo,track,dev]"]
 
 [project.scripts]
 atcf-collect = "atc_forecast.collect.opensky:main"
