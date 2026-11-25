@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATC trajectory prediction demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="head">
+  <div class="wrap top">
+    <div>
+      <h1>Aircraft trajectory prediction from ADS-B and imperfect ATC transcripts</h1>
+      <p class="sub">ADS-B history and an imperfect controller transcript in, 60 s of predicted flight out. Synthetic transmissions on held-out recorded flights.</p>
+    </div>
+    <nav class="tabs" aria-label="Views">
+      <a href="#live" data-view="live">Live sector</a>
+      <a href="#try" data-view="try">Try a transmission</a>
+      <a href="#compare" data-view="compare">Compare models</a>
+      <a href="#about" data-view="about">About</a>
+    </nav>
+  </div>
+</header>
+<div class="toolbar">
+  <div class="wrap models" id="models">
+    <label>Semantic belief model <select id="sel-sbm"></select></label>
+    <label>Trajectory predictor <select id="sel-ctp"></select></label>
+    <label class="dyn">Sampler <select id="sel-sampler"></select></label>
+    <label class="dyn">K <input id="sel-k" type="number" min="1" max="48" value="12"></label>
+    <label class="dyn">S <input id="sel-s" type="number" min="1" max="12" value="6"></label>
+    <label class="dyn">Seed <input id="sel-seed" type="number" min="0" max="10000" value="0"></label>
+    <label>Display <select id="sel-display">
+      <option value="both" selected>Samples and probability regions</option>
+      <option value="prob">Probability regions</option>
+      <option value="samples">Samples only</option>
+    </select></label>
+    <span id="model-note" class="note"></span>
+  </div>
+</div>
+<div class="static-note"><div class="wrap">Static version: every prediction shown here was computed in advance with 12 Euler steps, 12 sampled instructions and 6 trajectories each. To type your own transmissions, edit words and change every setting, <a href="https://github.com/Alex-Zongo/atc-trajectory-prediction#interactive-demo" target="_blank" rel="noopener">run the demo locally</a>.</div></div>
+
+<main>
+  <section class="view" id="view-live">
+    <div class="wrap bar">
+      <label>Scene <select id="scene-sel"></select></label>
+      <button id="scene-prev" type="button">Previous</button>
+      <button id="scene-next" type="button">Next</button>
+      <label class="chk dyn"><input id="live-norm" type="checkbox" checked> Identify the recipient across aircraft</label>
+      <label class="chk"><input id="live-route" type="checkbox"> ADS-B-only routing for no-motion samples</label>
+      <label class="chk"><input id="live-fans" type="checkbox"> Fans for every aircraft</label>
+    </div>
+    <div class="wrap grid2">
+      <div class="panel">
+        <div class="fig tall"><svg id="live-map" role="img" aria-label="Plan view of the scene"></svg></div>
+        <div class="clock">
+          <button id="clock-play" type="button">Play</button>
+          <select id="clock-speed" aria-label="Replay speed"><option value="1">1x</option><option value="2" selected>2x</option><option value="4">4x</option><option value="8">8x</option></select>
+          <input id="clock-range" type="range" min="-30" max="90" step="0.5" value="-30" aria-label="Scene time">
+          <span id="clock-t" class="mono">-30 s</span>
+          <span id="live-lat" class="note"></span>
+        </div>
+        <div class="branches" id="live-branches"></div>
+        <p class="legend" id="live-cov"></p>
+        <p class="cap">Scroll to zoom, drag to pan, double-click to reset. Shaded regions, nearest the aircraft first: where it is predicted to be at +20, +40 and +60 s with 50% (solid outline) and 90% (dashed) probability. Numbered badges mark the instruction branches listed above. Local frame, km from the scene centre; aircraft grouped by time on one day, as in Appendix H. Grey: last 30 s. Black dashes: the flown path, drawn after the fact. Blue: predicted trajectories for the aircraft the model judges addressed; grey fans: the others.</p>
+      </div>
+      <div class="panel side">
+        <h3>Radio transmissions on the sector frequency</h3>
+        <p class="note">Every aircraft in the scene hears every transmission. Click one to run it.</p>
+        <ol id="feed" class="feed"></ol>
+        <form id="custom-form" class="custom dyn">
+          <input id="custom-text" type="text" placeholder="Type a transmission, e.g. united one two three descend and maintain five thousand" autocomplete="off" aria-label="Transmission text">
+          <div class="custom-row">
+            <label>at <input id="custom-t" type="number" step="1" value="0" aria-label="Scene time in seconds"> s</label>
+            <label>meant for <select id="custom-for" aria-label="Intended aircraft"></select></label>
+            <button type="submit">Transmit</button>
+          </div>
+        </form>
+        <h3>Which aircraft is addressed?</h3>
+        <div id="recipients" class="bars"><p class="note">Play the scene or click a transmission.</p></div>
+        <h3>Belief of the most likely recipient</h3>
+        <div id="live-belief" class="bars"></div>
+        <div id="live-scores"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-try">
+    <div class="wrap bar">
+      <label>Case <select id="case-sel"></select></label>
+      <span id="case-ac" class="note"></span>
+    </div>
+    <div class="wrap grid2">
+      <div class="panel">
+        <div id="msg-variants" class="chips dyn"></div>
+        <div id="editor" class="editor" aria-label="Transcript words"></div>
+        <p class="note dyn">Click a word to lower its recognizer confidence (1.0, 0.6, 0.3, 0.1). Shift-click removes it. <button id="edit-text" type="button" class="link">Edit as text</button> <button id="reset-text" type="button" class="link">Reset</button></p>
+        <textarea id="text-area" class="hidden" rows="3" aria-label="Transcript text"></textarea>
+        <div class="conds" id="conds"></div>
+        <div class="figrow">
+          <div class="fig"><svg id="try-plan" role="img" aria-label="Plan view, track up"></svg></div>
+          <div class="fig"><svg id="try-alt" role="img" aria-label="Altitude change over time"></svg></div>
+        </div>
+        <div class="branches" id="try-branches"></div>
+        <p class="legend" id="try-cov"></p>
+        <details class="howto"><summary>How to read the probability regions</summary>
+          <p>At each of +20, +40 and +60 s the model's samples are turned into a density of the aircraft's position. The darker area, with a solid outline, is the smallest area holding half of that probability; the lighter area, dashed, holds 90%. Read them as: if the model is right, the aircraft will be inside the dark area at that time one time in two, and inside the light area nine times in ten.</p>
+          <p>A region that splits into separate islands means the transmission supports competing instructions, for example a left turn against "another aircraft, keep flying". Each island's size follows its branch share in the numbered legend. A small region means the model is confident, not that it is right: the open circles show where the aircraft actually was, and the line above says whether it fell inside.</p>
+          <p>The altitude chart uses the same idea over time: the band holds the central 50% and 90% of predicted altitude changes. With the default 12 Euler steps the 90% regions held the flown position about 86% of the time on the synthetic test set, so they are slightly too tight; 32 Heun steps bring this close to 90%.</p>
+        </details>
+        <p class="note">Scroll on a plot to zoom, drag to pan, double-click to reset.</p>
+        <div id="try-scores"></div>
+      </div>
+      <div class="panel side">
+        <h3>Most probable instructions</h3>
+        <div id="try-readings" class="bars"></div>
+        <h3>Transmission status</h3>
+        <div id="try-status" class="bars"></div>
+        <h3>The K sampled instructions</h3>
+        <div id="try-samples" class="bars"></div>
+        <p id="try-info" class="note"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="view" id="view-compare">
+    <div class="wrap">
+      <p class="note">Same aircraft and transcript as <a href="#try">Try a transmission</a>. Each side picks its own semantic model, trajectory predictor and sampler. Both sides use one scale. <span class="sw" style="background:#1240e0"></span> composed over the belief, <span class="sw" style="background:#7c3aed"></span> most probable representation, thick line: the flown trajectory.</p>
+      <div class="grid-eq" id="cmp"></div>
+      <div id="cmp-summary"></div>
+    </div>
+  </section>
+
+  <section class="view" id="view-about">
+    <div class="wrap prose">
+      <h2>What this demo runs</h2>
+      <p>A semantic belief model (SBM) reads the transcript, each word's recognizer confidence, the aircraft's own ADS-B callsign and its last 30 s, and returns a distribution over structured instruction representations: whether the transmission addresses this aircraft, and its lateral, vertical and speed instruction. A conditional trajectory predictor (CTP) samples future trajectories under each sampled representation. The composed prediction draws K representations and S trajectories under each.</p>
+      <p>Every model is the first training run of the paper's configuration. The selectors switch to the ablations and to the alternative trajectory representations of the paper's appendices.</p>
+      <h2>Data</h2>
+      <p>Flights are recorded ADS-B tracks from held-out test and validation segments over the San Francisco Bay Area. Transmissions are synthetic, generated from each segment's maneuver with simulated recognition errors. Positions are shown only relative to the aircraft or to the scene centre. No recorded speech is used.</p>
+      <h2>Limits</h2>
+      <ul>
+        <li>Heading, altitude and speed instructions only. Route, procedure, conditional, takeoff and landing clearances are outside the representation.</li>
+        <li>Each transmission is read alone, without earlier clearances or readbacks.</li>
+        <li>When the model reads no motion instruction, its prediction is often worse than the ADS-B-only predictor.</li>
+        <li>The predicted spread is narrower than the flown variation with the default sampler; 32 Heun steps bring coverage close to nominal on synthetic data. Not an operational tool.</li>
+      </ul>
+      <p class="note">Typed transmissions are processed in memory and not stored.</p>
+    </div>
+  </section>
+</main>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

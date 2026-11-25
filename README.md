@@ -1,10 +1,14 @@
-# Aircraft trajectory prediction under ATC instruction uncertainty
+# Aircraft Trajectory Prediction from ADS-B and Imperfect ATC Transcripts
 
 Predicting where an aircraft will be over the next minute, from its ADS-B track and a controller instruction known only through an imperfect speech transcript.
 
-![Three synthetic test transmissions on real ADS-B tracks: the heard transcript, the most probable interpretations, the 72 predicted trajectories against the history-only prediction, and the flown trajectory](docs/assets/demo.gif)
+![Three synthetic test transmissions on real ADS-B tracks: the transcript as heard, the most probable instructions, the 72 predicted trajectories against the ADS-B-only prediction, and the flown trajectory](docs/assets/demo.gif)
 
-*Synthetic test transmissions (simulated recognizer) on real ADS-B tracks. Word chips are shaded by recognizer confidence. Blue: the prediction from 12 interpretations × 6 trajectories. Gray: history only. Dashed: what the aircraft flew.*
+*Synthetic test transmissions (simulated recognizer) on recorded ADS-B tracks. Words are shaded by recognizer confidence. Blue: the composed prediction, 12 sampled instructions × 6 trajectories. Gray: ADS-B only. Dashed: what the aircraft flew.*
+
+![Live sector: five held-out flights on one day, transmissions arriving on the shared frequency, the addressed aircraft identified across the aircraft, and its predicted 50 % and 90 % regions at +20, +40 and +60 s](docs/assets/sector.gif)
+
+*Several aircraft on one frequency. Each transmission is heard by every aircraft; the model identifies the recipient across them and predicts the recipient's next 60 s, shown as the 50 % and 90 % regions at +20, +40 and +60 s, as in the [interactive demo](demo/README.md).*
 
 ## Why
 
@@ -23,43 +27,68 @@ p(Y | O, X)  ≈  Σ_Z  q_φ(Z | O, X) · p_θ(Y | X, Z)
 | | |
 |---|---|
 | `O` | the transcript, one recognizer confidence per word |
-| `X` | the aircraft's last 30 s of ADS-B at 1 Hz, and its type |
-| `Z` | the interpretation of the transmission: is it for this aircraft, and what lateral, vertical and speed change it asks for |
+| `X` | the aircraft's last 30 s of ADS-B at 1 Hz, its type and its callsign |
+| `Z` | the structured instruction representation: whether the transmission addresses this aircraft, and its lateral, vertical and speed instruction |
 | `Y` | the next 60 s of flight |
 
 ```
-transcript O ─► semantic belief model (SBM) ─► K = 12 interpretations Z_k, with probabilities
+transcript O ─► semantic belief model (SBM) ─► K = 12 sampled instruction representations Z_k
 history X  ─┬──────────────────────────────┘
             └► conditional trajectory predictor (CTP) ─► S = 6 trajectories per Z_k ─► 72 trajectories
 ```
 
-- The **semantic belief model** gives a distribution over interpretations. It is not just a best guess, so a misheard *five* or a clipped callsign stays visible as uncertainty. It compares the callsign it hears with the aircraft's own ADS-B callsign.
-- The **conditional trajectory predictor** is a rectified flow on 18 trajectory-shape coefficients (a PCA basis of the training futures). It gives the spread that remains once the instruction is known: pilot delay, rates, wind and performance.
-- **Composition** draws several interpretations and several future trajectories under each. On a frequency with several aircraft, joint addressee inference uses the fact that a transmission addresses at most one of them, so each aircraft's prediction takes only its share of the instruction.
+- The **semantic belief model** gives a probability distribution over structured instruction representations, not just a best guess, so a misheard *five* or a clipped callsign stays visible as uncertainty. It compares the callsign it hears with the aircraft's own ADS-B callsign.
+- The **conditional trajectory predictor** is a flow-matching model on 18 trajectory-shape coefficients (a PCA basis of the training futures). It gives the spread that remains once the instruction is known: pilot delay, rates, wind and performance.
+- **Composition** samples several instruction representations from the belief and several trajectories under each. With several aircraft on a frequency, recipient identification across the aircraft uses the fact that a transmission addresses at most one of them.
 
-On the synthetic test set (real ADS-B, transcripts simulated from a fitted recognizer channel), errors are energy scores in metres, lower is better. Means over three training runs:
+### Synthetic test set
 
-| | own maneuver | all transmissions | 90 % coverage |
+Recorded ADS-B, transcripts simulated from a recognizer channel fitted to real ATC speech. Horizontal energy score over 60 s in metres (lower is better) on 5,000 held-out segments; means over three training runs, ± standard deviation:
+
+| | own-aircraft maneuver instructions | all transmissions | 90 % coverage |
 |---|---|---|---|
-| history only (ignores the radio) | 3,202 | 2,988 | 0.85 |
-| CTP conditioned on the transcript directly | 2,187 | 2,751 | 0.85 |
-| SBM most probable interpretation → CTP | 1,727 ± 2 | 2,732 | 0.84 |
-| **SBM, 12 interpretations × 6 trajectories → CTP (main)** | **1,682 ± 5** | **2,701** | 0.86 |
-| CTP given the reference interpretation (upper reference) | 1,556 ± 2 | 2,615 | 0.85 |
+| ADS-B only (ignores the radio) | 3,202 | 2,988 | 0.85 |
+| CTP conditioned on the transcript directly (no SBM) | 2,187 | 2,751 | 0.85 |
+| SBM most probable instruction → CTP | 1,727 ± 2 | 2,732 | 0.84 |
+| **SBM, 12 sampled instructions × 6 trajectories → CTP** | **1,682 ± 5** | **2,701** | 0.86 |
+| CTP given the semantic label (reference, not available in operation) | 1,556 ± 2 | 2,615 | 0.85 |
 
-On recorded speech: 338 controller transmissions from a public NorCal Departure feed, transcribed by a general-purpose Whisper large-v3 and matched to the ADS-B of the aircraft addressed. Energy scores in metres, means over three SBM training runs with the same CTP:
+The composed prediction keeps 92 % of the improvement that the semantic label itself would give over ADS-B only. Its advantage over the most probable instruction is concentrated on the transmissions whose most probable instruction is wrong. On transmissions that carry no motion instruction for the aircraft, ADS-B only remains better.
 
-| | energy score | addressed aircraft ranked first (of ~12 within 40 nm) |
-|---|---|---|
-| history only (ignores the radio) | 5,397 | — |
-| SBM most probable interpretation → CTP | 5,454 | — |
-| **SBM, 12 interpretations × 6 trajectories → CTP (main)** | **4,906 ± 52** | **98 %** |
+### Recorded controller speech
 
-Composition improves on history only by 9 %, and on the most probable interpretation alone by 10 %. Two limits remain. The prediction is overconfident on recorded speech (30 % of flown trajectories fall in the outer tenth), and the vertical error is still worse than history only. The set is private (only aggregates are reported) and not fully independent of training, since part of the SBM's training phrasing was taken from the same frequency.
+4,863 controller transmissions recorded at San Francisco (KSFO) and Boston (KBOS) on two days in July 2026, transcribed by two ATC-fine-tuned Whisper large-v3 recognizers and matched to the ADS-B of the aircraft named in them. No model was trained, tuned or selected on these data, and Boston lies outside the region the trajectory models were trained on. The recordings have no human labels, so the score is measured against the trajectory each aircraft then flew. Horizontal energy score in metres; means over three training runs:
 
-Ablations, the SBM versions, calibration, recorded speech and where the error remains are covered in [docs/v2/results.md](docs/v2/results.md).
+| | all controller transmissions | heading, altitude and speed instructions | Boston (new airport) |
+|---|---|---|---|
+| ADS-B only | 4,400 | 5,064 | 5,088 |
+| SBM most probable instruction → CTP | 3,649 ± 15 | 3,582 ± 37 | 3,858 ± 65 |
+| **SBM, 12 × 6 → CTP** | **3,452 ± 46** | **3,360 ± 26** | **3,661 ± 85** |
 
-v1, the original two-stage model behind the first results, is documented in [docs/v1.md](docs/v1.md) and tagged `v1.0.0`. Its code is unchanged.
+Composition improves on ADS-B only by 22 % overall, by 34 % on heading, altitude and speed instructions, and by 23 % on the 1,352 transmissions whose audio the recognizers never saw in training. It ranks the addressed aircraft first in 93 % of transmissions. The limits are as clear: tower transmissions, which carry takeoff and landing clearances outside the representation, are worse than ADS-B only (3,146 against 2,841 m); the vertical score is slightly worse (1,050 against 1,006 ft); and the prediction is overconfident (over all 9,010 matched transmissions, nominal 90 % intervals cover 0.81 of flown positions). The evaluation set belongs to a research collaboration and is not released; only these aggregates are reported.
+
+### Cost
+
+One composed prediction (one transmission, one aircraft, 72 trajectories) takes about 0.18 s on a laptop CPU (Apple M4 Pro, four threads), more than 90 % of it in the flow integration.
+
+### Interactive demo
+
+The [`demo/`](demo/README.md) folder serves the models behind a small web interface that runs on your own machine:
+
+- **Live sector:** a few held-out flights on one day, synthetic transmissions arriving on the shared frequency, the recipient identified across the aircraft, a replay clock, and transmissions you type yourself (the second animation above).
+- **Try a transmission:** edit a transcript word by word, lower a word's recognizer confidence, and compare the composed prediction with the most probable instruction, the semantic label, ADS-B only, the transcript-conditioned flow and a kinematic rule.
+- **Compare models:** two semantic belief models, trajectory predictors or samplers side by side on one scale.
+
+Each view can show the sampled trajectories, the 50 % and 90 % regions where the aircraft is predicted to be at +20, +40 and +60 s, or both. To run it after cloning (CPU is enough; about 0.2 s per prediction):
+
+```bash
+uv sync --extra demo                                           # in a fresh clone; otherwise --all-extras
+gh auth login                                                  # once
+uv run python scripts/artifacts.py fetch --models-only --demo  # main models + the demo's extra models and data (~80 MB)
+uv run uvicorn demo.server.app:app --port 7860                 # then open http://localhost:7860
+```
+
+The demo data are held-out windows with airline callsigns, positions relative to the aircraft or to the scene centre, and synthetic transmissions; no raw ADS-B and no recorded speech. Only the variants whose checkpoints are installed appear in the menus.
 
 ## Install
 
@@ -67,7 +96,7 @@ Managed with [uv](https://docs.astral.sh/uv/); `uv.lock` pins every dependency. 
 
 ```bash
 uv sync --all-extras          # .venv from the lock
-uv run pytest                 # 66 tests in seconds; no data, checkpoints or network
+uv run pytest                 # 69 tests in seconds; the 3 demo tests need the demo bundle
 ```
 
 PyTorch picks CUDA, then Apple MPS, then CPU; override with `--device`.
@@ -89,9 +118,9 @@ The models are also on the Hub (`fetch --hub alexzongo --models-only`).
 |---|---|
 | `runs/v2/sbm_jacktol_ho_s0.pt` | final semantic belief model: callsign contrast and handoff phrases (vocabulary included) |
 | `runs/v2/ctp_basis_atoms_zfix_s0.pt` | conditional trajectory predictor (basis included) |
-| `runs/v2/ctp_basis_none_s0.pt` | history-only predictor: the "radio tells us nothing" answer |
-| `runs/v2/anchors_atoms_zfix_s0.pt` | mixture-head alternative to the flow, better calibrated, single network call |
-| `runs/v2/ctp_basis_text_s0.pt` | baseline: trajectory predictor conditioned on the transcript directly, without interpretations |
+| `runs/v2/ctp_basis_none_s0.pt` | ADS-B-only predictor: the "radio tells us nothing" answer |
+| `runs/v2/anchors_atoms_zfix_s0.pt` | mixture-density alternative to the flow: similar accuracy on maneuver instructions, coverage closer to nominal, one network call |
+| `runs/v2/ctp_basis_text_s0.pt` | baseline: trajectory predictor conditioned on the transcript directly, without the SBM |
 
 Downloads are checked against `SHA256SUMS`. Without the GitHub CLI, download the assets from the `data-v2` release page and run `fetch --from <folder>`.
 
@@ -106,7 +135,7 @@ fc = Forecaster.load("runs/v2/sbm_jacktol_ho_s0.pt", "runs/v2/ctp_basis_atoms_zf
 states = load_states("adsb/*.parquet")                 # or adsb.lol traces: source="readsb"
 out = fc.forecast(states, icao24="a1b2c3", t0=1767225612.4,
                   words=[{"word": "united", "probability": 0.98}, ...])   # faster-whisper words
-out["readings"]                       # [("own_motion | L270 | descend 5,000 | -", 0.81, atoms), ...]
+out["readings"]                       # most probable instruction representations: [("own_motion | L270 | descend 5,000 | -", 0.81, atoms), ...]
 out["lat"], out["lon"], out["alt_ft"] # 72 future trajectories x 60 s
 ```
 
@@ -144,6 +173,7 @@ src/atc_forecast/
   collect/      OpenSky download, aircraft type database
   asr/          transcription of real audio (faster-whisper)
   app/          the v1 viewer
+demo/           web demo: model service (FastAPI), front end, bundle builder, Space packaging
 scripts/        run_v2.sh (the whole plan), artifacts.py (releases), diagnosis and inspection
 tests/
 ```
@@ -153,18 +183,19 @@ v1 modules (`models/stage1.py`, `models/stage2.py`, `data/windows.py`, `evaluati
 ## Data handling
 
 - Raw OpenSky ADS-B is never redistributed: OpenSky's terms restrict it. The processed 1 Hz windows are shared only through the gated Hugging Face dataset, and GitHub releases carry the model weights only.
-- Recorded controller speech (LiveATC) is used for evaluation only, under personal research use. Neither audio nor transcripts are shipped, and results are reported as aggregates.
+- Recorded controller speech (LiveATC) is used for evaluation only. The July 2026 KSFO and KBOS evaluation set belongs to a research collaboration and is not released; neither audio nor transcripts are shipped, and results are reported as aggregates.
 - The recognizer channel is fitted on ATCO2 and ATCOSIM benchmark transcripts. The recordings, their labels and the fitted word-confidence file are for internal research use and are not shipped; without them the transmission builder uses a parametric word-confidence fallback of the same shape.
 
 ## Citation
 
-A paper describing this work is in preparation. Until it is published, please cite the software (GitHub's **Cite this repository** button gives the same entry from `CITATION.cff`):
+A paper describing this work, with the same title, is in preparation. Until it is published, please cite the software (GitHub's **Cite this repository** button gives the same entry from `CITATION.cff`):
 
 ```bibtex
 @software{zongo2026atc,
   author  = {Zongo, Alex and Petit, Mathurin and Brusset, Louis and Kam, Jordan and
-             Torun, Emir and Ghazanfari, Mahyar and Wei, Peng and Bayen, Alexandre},
-  title   = {Aircraft Trajectory Prediction under {ATC} Instruction Uncertainty},
+             Torun, Emir and Ghazanfari, Mahyar and Wei, Peng and McNaughton, Nathan and
+             Bayen, Alexandre},
+  title   = {Aircraft Trajectory Prediction from {ADS-B} and Imperfect {ATC} Transcripts},
   year    = {2026},
   version = {0.1.0},
   note    = {Software; paper in preparation}

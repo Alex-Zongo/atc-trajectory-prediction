@@ -186,6 +186,7 @@ dependencies = [
 all = [
     { name = "anthropic" },
     { name = "av" },
+    { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "peft" },
     { name = "plotly" },
@@ -196,6 +197,7 @@ all = [
     { name = "srt" },
     { name = "streamlit" },
     { name = "transformers" },
+    { name = "uvicorn" },
     { name = "wandb" },
 ]
 app = [
@@ -213,6 +215,10 @@ asr = [
 collect = [
     { name = "pyopensky" },
 ]
+demo = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+]
 dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -225,8 +231,9 @@ track = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", marker = "extra == 'asr'", specifier = ">=0.70" },
-    { name = "atc-forecast", extras = ["collect", "asr", "app", "track", "dev"], marker = "extra == 'all'" },
+    { name = "atc-forecast", extras = ["collect", "asr", "app", "demo", "track", "dev"], marker = "extra == 'all'" },
     { name = "av", marker = "extra == 'asr'", specifier = "<19" },
+    { name = "fastapi", marker = "extra == 'demo'", specifier = ">=0.115" },
     { name = "faster-whisper", marker = "extra == 'asr'", specifier = ">=1.0" },
     { name = "matplotlib", specifier = ">=3.8" },
     { name = "numpy", specifier = ">=1.26" },
@@ -244,9 +251,10 @@ requires-dist = [
     { name = "torch", specifier = ">=2.2" },
     { name = "tqdm", specifier = ">=4.66" },
     { name = "transformers", marker = "extra == 'asr'", specifier = ">=4.46" },
+    { name = "uvicorn", marker = "extra == 'demo'", specifier = ">=0.30" },
     { name = "wandb", marker = "extra == 'track'", specifier = ">=0.17" },
 ]
-provides-extras = ["collect", "asr", "app", "track", "dev", "all"]
+provides-extras = ["collect", "asr", "app", "demo", "track", "dev", "all"]
 
 [[package]]
 name = "attrs"
@@ -983,6 +991,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e0/4d/f332313098c1de1b2d2ff91cf2674415cc7cddab2ca1b01ae29774bd5fdf/docstring_parser-0.18.0.tar.gz", hash = "sha256:292510982205c12b1248696f44959db3cdd1740237a968ea1e2e7a900eeb2015", size = 29341, upload-time = "2026-04-14T04:09:19.867Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl", hash = "sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b", size = 22484, upload-time = "2026-04-14T04:09:18.638Z" },
+]
+
+[[package]]
+name = "fastapi"
+version = "0.165.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "annotated-doc" },
+    { name = "anyio" },
+    { name = "opentelemetry-api" },
+    { name = "pydantic" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/27/f9/e7820ef181026fea100bde02d811445bf8e883362d7092b6928767147056/fastapi-0.165.0.tar.gz", hash = "sha256:dd94d4128319c1e1d50535ab023ab698f850a4d2822f0e181747b46f4ff3c0ab", size = 557984, upload-time = "2026-11-18T19:15:37.076Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/c1/3b74c030262a1b38b1fee180f80b4007bbc11c9ac12028cb18c7bcecaec9/fastapi-0.165.0-py3-none-any.whl", hash = "sha256:896f48462042bb4f162147eb8fac7e858753dc1f486765709baf105d70e4fc5b", size = 159475, upload-time = "2026-11-18T19:15:35.345Z" },
 ]
 
 [[package]]

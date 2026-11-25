@@ -7,6 +7,7 @@ the repository can fetch them, from any branch, with one command:
     python scripts/artifacts.py fetch --models-only        # v2: main model and baselines (~38 MB)
     python scripts/artifacts.py fetch --hub <owner>        # v2: + dataset (~2 GB, gated)
     python scripts/artifacts.py fetch --all-runs           # v2: + every training run (~110 MB), if published
+    python scripts/artifacts.py fetch --models-only --demo # v2: + the web demo's extra models and data (~45 MB)
     python scripts/artifacts.py fetch --set v1             # v1 (release data-v1, ~420 MB)
 
 and the owner publishes them with
@@ -40,6 +41,11 @@ Bundles, v2 (release data-v2):
   runs-v2.tar.gz      the main model and its baselines, first run: the final SBM (callsign
                       contrast and handoff phrases), CTP, history-only CTP, transcript-
                       conditioned CTP, anchors head
+  runs-v2-demo.tar.gz the web demo (demo/): the extra checkpoints its selectors offer (initial
+                      and no-history SBMs, sine-basis flow, trajectory-cluster flow, bank-angle
+                      primitives) and its data bundle (demo/bundle: held-out windows with airline
+                      callsigns, positions relative to the aircraft or scene, synthetic
+                      transmissions; built by demo/build_bundle.py)
   runs-v2-all.tar.gz  every training run (seeds 0-2) of the final, callsign-contrast and
                       base SBMs, the CTP and the anchors head: the paper's run statistics
   dataset-v2.tar      data/v2: 1 Hz windows (arrays, windows.parquet), segments, the PCA
@@ -80,6 +86,9 @@ SETS = {
         "runs-v2-all.tar.gz": [f"runs/v2/{m}_s{s}.pt" for m in ("sbm_jacktol_ho", "sbm_jacktol_cs",
                                                                 "sbm_jacktol_anyorder", "ctp_basis_atoms_zfix",
                                                                 "anchors_atoms_zfix") for s in (0, 1, 2)],
+        "runs-v2-demo.tar.gz": ["runs/v2/sbm_jacktol_anyorder_s0.pt", "runs/v2/sbm_jacktol_nohist_s0.pt",
+                                "runs/v2/ctp_sine_atoms_s0.pt", "runs/v2/kindctp_joint_atoms_s0.pt",
+                                "runs/v2/prim_v3_atoms_s0.pt", "demo/bundle"],
         "dataset-v2.tar": ["data/v2/arrays", "data/v2/windows.parquet", "data/v2/segments.parquet",
                            "data/v2/basis.npz", "data/v2/manifest.json", "data/v2/messages_jacktol",
                            "data/v2/messages_jacktol_ho"],
@@ -91,7 +100,8 @@ SETS = {
     }),
 }
 MODELS = {"v2": "runs-v2.tar.gz", "v1": "runs.tar.gz"}
-OPTIONAL = {"runs-v2-all.tar.gz"}                 # built and fetched only with --all-runs
+OPTIONAL = {"runs-v2-all.tar.gz": "all_runs",     # built and fetched only with --all-runs
+            "runs-v2-demo.tar.gz": "demo"}       # ... and with --demo
 HUB_ONLY = {"v2": {"dataset-v2.tar"}}            # OpenSky-derived: gated Hub dataset, never a release
 HUB_CARDS = {"model": ROOT / "docs/hub/model_card.md", "dataset": ROOT / "docs/hub/dataset_card.md"}
 ADSB_GLOB = "data/adsb/adsb_*.parquet"
@@ -113,7 +123,7 @@ def gh(*args):
 
 
 def bundles(a) -> dict:
-    b = {k: v for k, v in SETS[a.set][1].items() if k not in OPTIONAL or getattr(a, "all_runs", False)}
+    b = {k: v for k, v in SETS[a.set][1].items() if k not in OPTIONAL or getattr(a, OPTIONAL[k], False)}
     if getattr(a, "models_only", False):
         return {k: v for k, v in b.items() if k == MODELS[a.set] or k in OPTIONAL}
     return b
@@ -278,12 +288,14 @@ def main():
                    help="also publish the raw ADS-B; only on a private repository")
     p.add_argument("--dry-run", action="store_true", help="build the assets, upload nothing")
     p.add_argument("--all-runs", action="store_true", help="also every training run (runs-v2-all.tar.gz)")
+    p.add_argument("--demo", action="store_true", help="also the web demo's models and data (runs-v2-demo.tar.gz)")
     p.add_argument("--models-only", action="store_true", help="only the model checkpoints, no dataset")
     f = sub.add_parser("fetch", help="download, verify and unpack the release assets")
     f.add_argument("--set", default="v2", choices=tuple(SETS))
     f.add_argument("--release", default=None, help="default: data-v2 or data-v1")
     f.add_argument("--models-only", action="store_true", help="only the model checkpoints")
     f.add_argument("--all-runs", action="store_true", help="also every training run (runs-v2-all.tar.gz)")
+    f.add_argument("--demo", action="store_true", help="also the web demo's models and data (runs-v2-demo.tar.gz)")
     f.add_argument("--adsb", action="store_true", help="also install the raw ADS-B days")
     f.add_argument("--from", dest="src", default=None,
                    help="install from a folder of already-downloaded assets instead")

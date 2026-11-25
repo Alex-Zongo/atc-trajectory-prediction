@@ -39,7 +39,7 @@ JSON lines, one object per transmission:
 | `t_end` | end of the transmission, unix seconds or ISO 8601 (`"2026-01-01T00:00:12.4Z"`). It is the prediction time t0; `--t0-offset` shifts it |
 | `words` | the recognizer's words. Each takes `word` (or `text`) and `probability` (or `prob`, `confidence`); other keys are ignored. faster-whisper's `word.word` / `word.probability`, and this repository's `asr/transcribe.py` output, fit as they are |
 | `text` | instead of `words`, when the recognizer gives no confidences; every word then gets `--default-conf` (1.0) |
-| `icao24` | the addressee's 24-bit address, when the matching gives it; otherwise |
+| `icao24` | the recipient's 24-bit address, when the matching gives it; otherwise |
 | `callsign` | its ICAO callsign (`UAL2`), looked up in the ADS-B within `--match-window` seconds (300) |
 | `group` | optional label to break the scores down by: instruction type, sector, recognizer, ... |
 
@@ -81,11 +81,11 @@ Every condition runs on the same windows with the same seeds:
 
 | condition | |
 |---|---|
-| `composed` | the main model: the SBM reads the transmission, 12 interpretations × 6 futures |
+| `composed` | the main model: the SBM reads the transmission, 12 sampled instruction representations × 6 future trajectories |
 | `known` | the same, with "this transmission is for this aircraft" given, as the matching asserts |
-| `mode` | the SBM's single most likely interpretation, 72 futures under it |
-| `hist_only` | the history-only predictor (`--hist-only`): `composed − hist_only` is what the radio adds |
-| `scene` | with `--scene-radius-nm R`: every airborne aircraft within R nm (up to `--max-aircraft`, 16) also hears the transmission; they compete for it, and the addressee's forecast takes only its share |
+| `mode` | the SBM's most probable instruction, 72 future trajectories under it |
+| `hist_only` | the ADS-B-only predictor (`--hist-only`): `composed − hist_only` is what the radio adds |
+| `scene` | with `--scene-radius-nm R`: every airborne aircraft within R nm (up to `--max-aircraft`, 16) also hears the transmission; the recipient is identified across them, and each aircraft's prediction takes only its share |
 
 `results/real.json` holds:
 - counts and rejection reasons;
@@ -94,9 +94,9 @@ Every condition runs on the same windows with the same seeds:
 - per condition: energy score, ADE/FDE (horizontal m, vertical ft), min-ADE₆, coverage and outer-decile rank share;
 - PIT and rank histograms (10 bins, each 0.1 when calibrated);
 - with `--group`: the same per group;
-- with a scene: how often the addressee ranks first.
+- with a scene: how often the recipient ranks first.
 
-`--per-message` writes one line per transmission: the top three interpretations with probabilities, the interpretations actually drawn, and every condition's scores. That file is where to start reading failures.
+`--per-message` writes one line per transmission: the three most probable instruction representations with probabilities, the representations actually sampled, and every condition's scores. That file is where to start reading failures.
 
 For batches of thousands of transmissions, use a GPU. On an M4 Pro, 300 transmissions with all five conditions take about 9 min, most of it in the scene condition (14 aircraft per scene on average).
 
@@ -112,9 +112,9 @@ out = fc.forecast(states, icao24="a1b2c3", t0=1767225612.4, words=words)
 ```
 
 `forecast` returns:
-- `readings`: the beam's top interpretations as `(text, probability, atoms)`;
+- `readings`: the most probable instruction representations from beam search, as `(text, probability, atoms)`;
 - `status`: the semantic model's split over who the transmission is for;
-- `interpretations`: the 12 drawn readings;
+- `interpretations`: the 12 sampled representations (the key keeps its older name);
 - `velocities` [72, 60, 3]: track frame, m/s;
 - `lat`, `lon`, `alt_ft` [72, 60];
 - the token and unknown counts, and the callsign used.
@@ -132,9 +132,9 @@ What it does not separate:
 - **Instructions acted on later than 60 s, or not at all** (readbacks, "expect" clauses, pilot discretion) count as forecast error, as they would in operation. A `group` field for clearance type or readback shows how much.
 - **Transmissions that are not instructions** (frequency changes, traffic information) belong in the set too. The model should forecast "no change" for them, and the `hist_only` comparison shows whether it does.
 - **Semantic accuracy** (did the SBM read the instruction right) needs a human label per transmission. Without one, `readings` in the per-message file are the place to judge it.
-- **Which aircraft the transmission was for**, in the scene condition, is taken from the matching. A wrong match shows up as a low `p_addressee` with the true aircraft elsewhere.
+- **Which aircraft the transmission was for**, in the scene condition, is taken from the matching. A wrong match shows up as a low `p_addressee` (probability that the matched aircraft is the recipient) with the true aircraft elsewhere.
 
-On the synthetic test set the main model scores 1,675 m on own-maneuver transmissions, against 3,202 for the history-only model. On real speech the gap shrinks by however much the recognizer's real errors exceed the simulated channel; the unknown-token share and `status_mean` are the first signs of it.
+On the synthetic test set the main model scores 1,682 m on own-aircraft maneuver instructions (mean of three runs), against 3,202 for the ADS-B-only model. On real speech the gap shrinks by however much the recognizer's real errors exceed the simulated channel; the unknown-token share and `status_mean` are the first signs of it.
 
 ## Checks behind the interface
 
@@ -142,7 +142,7 @@ On the synthetic test set the main model scores 1,675 m on own-maneuver transmis
 - **Same scores as the test evaluation.** On the 41 of those transmissions that the stored test evaluation also scored, with the same seeds, the composed energy score matches `compose_v2` to 0.00 m.
 - **Tests.** `tests/test_inference_v2.py` covers:
   - word normalization keeping its confidences;
-  - the history-only windows equal the full ones;
+  - the windows built from the history alone equal the full ones;
   - readsb unit conversion and stale rows;
   - the callsign at t0;
   - `Forecaster.forecast`;

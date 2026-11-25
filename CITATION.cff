@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: >-
-  A paper describing this work is in preparation. Until it is published, please cite
-  the software as below.
-title: "Aircraft Trajectory Prediction under ATC Instruction Uncertainty"
+  A paper describing this work, with the same title, is in preparation. Until it is
+  published, please cite the software as below.
+title: "Aircraft Trajectory Prediction from ADS-B and Imperfect ATC Transcripts"
 type: software
 version: 0.1.0
 date-released: 2026-10-15
@@ -15,6 +15,7 @@ keywords:
   - speech recognition
   - uncertainty quantification
   - ADS-B
+  - flow matching
 authors:
   - given-names: Alex
     family-names: Zongo
@@ -30,5 +31,7 @@ authors:
     family-names: Ghazanfari
   - given-names: Peng
     family-names: Wei
+  - given-names: Nathan
+    family-names: McNaughton
   - given-names: Alexandre
     family-names: Bayen

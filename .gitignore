@@ -38,3 +38,7 @@ dist/
 /gpt_discussion_summary.md
 /scripts/export_*.py
 /scripts/explore_*.py
+
+# Demo bundle (derived from the gated dataset) and the assembled Space folder
+/demo/bundle/
+/demo/space/
